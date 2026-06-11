@@ -83,7 +83,6 @@ module Crimson
           messages: params[:messages],
           model: params[:model],
           tools: params[:tools],
-          stream_options: { include_usage: true },
           stream: stream_callback
         )
 

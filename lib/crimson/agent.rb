@@ -32,10 +32,13 @@ module Crimson
         messages = build_messages
         tools = provider_tool_definitions
 
+        streamed_content = false
+
         response, usage = @client.chat(messages: messages, tools: tools) do |text_chunk, tool_event|
           if text_chunk
             print text_chunk
             $stdout.flush
+            streamed_content = true
           elsif tool_event
             print_tool_call(tool_event)
           end
@@ -44,8 +47,12 @@ module Crimson
         track_usage(usage) if usage
         @history << response
 
+        # Print content if it wasn't streamed (e.g., error messages)
+        if response.content && !response.content.empty? && !streamed_content
+          puts response.content
+        end
+
         if response.tool_call?
-          puts if response.content && !response.content.empty?
           execute_tool_calls(response)
         else
           print_usage(usage)
