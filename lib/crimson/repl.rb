@@ -2,21 +2,25 @@ require "reline"
 require "pastel"
 
 module Crimson
-  class Repl
-    def initialize(agent)
-      @agent = agent
-      @pastel = Pastel.new
-      @spinner_active = false
-      @first_token_received = false
-      setup_event_handlers
-      setup_readline
-    end
+class Repl
+  RENDER_INTERVAL = 0.05
 
-    def start
-      $stdout.sync = true
-      puts @pastel.bold("Crimson v#{VERSION}")
-      puts @pastel.dim("Type /help for commands, /exit to quit")
-      puts
+  def initialize(agent)
+    @agent = agent
+    @pastel = Pastel.new
+    @spinner_active = false
+    @first_token_received = false
+    @render_buffer = String.new
+    @render_thread = nil
+    @render_mutex = Mutex.new
+    setup_event_handlers
+    setup_readline
+  end
+
+  def start
+    puts @pastel.bold("Crimson v#{VERSION}")
+    puts @pastel.dim("Type /help for commands, /exit to quit")
+    puts
 
       loop do
         input = Reline.readline("> ", true)
@@ -49,12 +53,12 @@ module Crimson
         start_spinner
       end
 
-      @agent.on(Agent::Events::MESSAGE_UPDATE) do |_event, delta:, **|
-        stop_spinner unless @first_token_received
-        @first_token_received = true
-        $stdout.print(delta)
-        $stdout.flush
-      end
+    @agent.on(Agent::Events::MESSAGE_UPDATE) do |_event, delta:, **|
+      stop_spinner unless @first_token_received
+      @first_token_received = true
+      @render_mutex.synchronize { @render_buffer << delta }
+      start_render_thread unless @render_thread&.alive?
+    end
 
       @agent.on(Agent::Events::TOOL_EXECUTION_START) do |_event, tool_name:, args:, **|
         stop_spinner
@@ -75,11 +79,12 @@ module Crimson
         end
       end
 
-      @agent.on(Agent::Events::TOOL_EXECUTION_UPDATE) do |_event, tool_name:, partial_result:, **|
-        next unless tool_name == "run_command"
-        $stdout.write("\r  #{@pastel.dim(partial_result)}")
-        $stdout.flush
-      end
+    @agent.on(Agent::Events::TOOL_EXECUTION_UPDATE) do |_event, tool_name:, partial_result:, **|
+      next unless tool_name == "run_command"
+      flush_render_buffer
+      $stdout.write("\r #{@pastel.dim(partial_result)}")
+      $stdout.flush
+    end
 
       @agent.on(Agent::Events::TURN_START) do
         unless @first_token_received
@@ -87,9 +92,10 @@ module Crimson
         end
       end
 
-      @agent.on(Agent::Events::AGENT_END) do
-        stop_spinner
-        usage = @agent.token_usage
+    @agent.on(Agent::Events::AGENT_END) do
+      stop_spinner
+      flush_render_buffer
+      usage = @agent.token_usage
         if usage[:total] > 0
           cost = @agent.cost_tracker.total_cost
           cost_str = cost > 0 ? " ($#{format("%.4f", cost)})" : ""
@@ -124,7 +130,28 @@ module Crimson
       $stdout.flush
     end
 
-    def handle_command(input)
+    def start_render_thread
+    @render_thread = Thread.new do
+      loop do
+        sleep RENDER_INTERVAL
+        break if flush_render_buffer == :empty
+      end
+    end
+  end
+
+  def flush_render_buffer
+    data = nil
+    @render_mutex.synchronize do
+      data = @render_buffer.dup
+      @render_buffer.clear
+    end
+    return :empty if data.nil? || data.empty?
+    $stdout.write(data)
+    $stdout.flush
+    nil
+  end
+
+  def handle_command(input)
       case input
       when "/help"
         puts @pastel.bold("Commands:")

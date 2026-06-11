@@ -7,13 +7,15 @@ module Crimson
     HISTORY_FILE = ".crimson_history"
 
     attr_reader :tool_registry, :token_usage, :events, :steering, :session_id, :session_cwd, :cost_tracker, :compactor
+  attr_writer :define_system_prompt
 
-    def initialize(client:, tool_registry:, system_prompt:)
-      @client = client
-      @tool_registry = tool_registry
-      @system_prompt = system_prompt
-      @history = []
-      @events = Agent::EventEmitter.new
+  def initialize(client:, tool_registry:, system_prompt:)
+    @client = client
+    @tool_registry = tool_registry
+    @system_prompt = system_prompt
+    @system_prompt_builder = nil
+    @history = []
+    @events = Agent::EventEmitter.new
       @steering = Agent::SteeringManager.new
       @token_usage = { prompt: 0, completion: 0, total: 0 }
       @before_tool_call = nil
@@ -64,13 +66,14 @@ module Crimson
       @compactor = Compactor.new(client: client, max_context_tokens: max_context_tokens)
     end
 
-    def compact!
-      return "Compaction not enabled" unless @compactor
-      return "History too short to compact" if @history.length <= 5
+  def compact!
+    return "Compaction not enabled" unless @compactor
+    return "History too short to compact" if @history.length <= 5
 
-      @history = @compactor.compact(@history, system_prompt: @system_prompt)
-      "Compacted history to #{@history.length} messages"
-    end
+    resolved_prompt = @system_prompt || (@system_prompt_builder&.call if @system_prompt_builder) || ""
+    @history = @compactor.compact(@history, system_prompt: resolved_prompt)
+    "Compacted history to #{@history.length} messages"
+  end
 
     def prompt(user_input)
       @history << Message::User.new(user_input)
@@ -155,7 +158,8 @@ module Crimson
         @events.emit(Agent::Events::TURN_START)
 
         if @compactor && @history.length > 10 && @compactor.needs_compaction?(@history)
-          @history = @compactor.compact(@history, system_prompt: @system_prompt)
+          resolved = @system_prompt || (@system_prompt_builder&.call if @system_prompt_builder) || ""
+          @history = @compactor.compact(@history, system_prompt: resolved)
         end
 
         messages = build_messages
@@ -175,6 +179,7 @@ module Crimson
 
         track_usage(usage) if usage
         @history << assistant_message
+        append_to_session(assistant_message)
         all_messages << assistant_message
 
         if assistant_message.tool_call?
@@ -248,12 +253,13 @@ module Crimson
       @events.emit(Agent::Events::AGENT_END, messages: all_messages)
     end
 
-    def build_messages
-      msgs = []
-      msgs << @cached_system_msg ||= Message::System.new(@system_prompt) unless @system_prompt.empty?
-      msgs.concat(@history)
-      msgs
-    end
+  def build_messages
+    msgs = []
+    resolved_prompt = @system_prompt || (@system_prompt_builder&.call if @system_prompt_builder) || ""
+    msgs << @cached_system_msg ||= Message::System.new(resolved_prompt) unless resolved_prompt.empty?
+    msgs.concat(@history)
+    msgs
+  end
 
     def provider_tool_definitions
       sdk = PROVIDERS[Crimson.config.provider.to_sym][:sdk]
@@ -324,9 +330,7 @@ module Crimson
 
       entries = @session_buffer.dup
       @session_buffer.clear
-      Thread.new do
-        entries.each { |e| @session_manager.append(@session_id, cwd: @session_cwd, entry: e) }
-      end
+      entries.each { |e| @session_manager.append(@session_id, cwd: @session_cwd, entry: e) }
     end
 
     def cached_tool_definitions
