@@ -38,6 +38,7 @@ module Crimson
       def stream_chat(params, &callback)
         collected_content = String.new
         collected_tool_calls = {}
+        usage = nil
 
         stream = @client.chat.completions.stream(
           messages: params[:messages],
@@ -46,54 +47,62 @@ module Crimson
         )
 
         stream.each do |event|
-          chunk = event.chunk
-          next unless chunk
+          case event
+          when OpenAI::Helpers::Streaming::ChatContentDeltaEvent
+            text = event.delta
+            if text && !text.empty?
+              collected_content << text
+              callback.call(text, nil)
+            end
 
-          choice = chunk.choices&.first
-          next unless choice
+          when OpenAI::Helpers::Streaming::ChatFunctionToolCallArgumentsDeltaEvent
+            idx = event.index
+            collected_tool_calls[idx] ||= {
+              id: nil,
+              name: event.name || "",
+              arguments: String.new
+            }
+            collected_tool_calls[idx][:name] = event.name if event.name
+            collected_tool_calls[idx][:arguments] << event.arguments_delta if event.arguments_delta
 
-          delta = choice.delta
-          next unless delta
+          when OpenAI::Helpers::Streaming::ChatFunctionToolCallArgumentsDoneEvent
+            idx = event.index
+            collected_tool_calls[idx] ||= {
+              id: nil,
+              name: event.name || "",
+              arguments: String.new
+            }
+            collected_tool_calls[idx][:name] = event.name if event.name
+            collected_tool_calls[idx][:arguments] = event.arguments if event.arguments
 
-          if delta.content
-            text = delta.content
-            collected_content << text
-            callback.call(text, nil)
-          end
+          when OpenAI::Helpers::Streaming::ResponseCompletedEvent
+            final = event.response
+            if final.respond_to?(:usage) && final.usage
+              usage = {
+                prompt_tokens: final.usage.prompt_tokens || 0,
+                completion_tokens: final.usage.completion_tokens || 0,
+                total_tokens: final.usage.total_tokens || 0
+              }
+            end
 
-          if delta.tool_calls
-            delta.tool_calls.each do |tc|
-              id = tc.id
-              idx = tc.index
-
-              if id
-                collected_tool_calls[idx] ||= {
-                  id: id,
-                  name: tc.function&.name || "",
-                  arguments: String.new
-                }
-              end
-
-              if tc.function&.arguments
-                collected_tool_calls[idx][:arguments] << tc.function.arguments
-                collected_tool_calls[idx][:name] = tc.function.name if tc.function.name
-              end
+          when OpenAI::Helpers::Streaming::ChatChunkEvent
+            chunk = event.chunk
+            if chunk.respond_to?(:usage) && chunk.usage
+              usage = {
+                prompt_tokens: chunk.usage.prompt_tokens || 0,
+                completion_tokens: chunk.usage.completion_tokens || 0,
+                total_tokens: chunk.usage.total_tokens || 0
+              }
             end
           end
         end
 
+        # Assign IDs from tool call chunks if we have them
         collected_tool_calls.each do |_idx, tc|
           callback.call(nil, tc)
         end
 
-        usage = stream.get_final_completion&.usage
-        usage_h = usage ? {
-          prompt_tokens: usage.prompt_tokens || 0,
-          completion_tokens: usage.completion_tokens || 0,
-          total_tokens: usage.total_tokens || 0
-        } : nil
-
-        [build_assistant_message(collected_content, collected_tool_calls.values), usage_h]
+        [build_assistant_message(collected_content, collected_tool_calls.values), usage]
       rescue => e
         [Message::Assistant.new(content: "Error communicating with #{provider_name}: #{e.message}"), nil]
       end
@@ -142,7 +151,7 @@ module Crimson
           rescue JSON::ParserError
             {}
           end
-          Message::ToolCall.new(id: raw[:id], name: raw[:name], arguments: args)
+          Message::ToolCall.new(id: raw[:id] || SecureRandom.uuid, name: raw[:name], arguments: args)
         end
 
         Message::Assistant.new(
