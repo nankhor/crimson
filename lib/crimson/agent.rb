@@ -23,6 +23,8 @@ module Crimson
       @session_id = nil
       @session_cwd = nil
       @last_entry_id = nil
+      @session_buffer = []
+      @session_flush_thread = nil
       @compactor = nil
       @cost_tracker = CostTracker.new
     end
@@ -69,6 +71,7 @@ module Crimson
 
     def prompt(user_input)
       @history << Message::User.new(user_input)
+      @cached_tool_defs = nil
       append_to_session(@history.last)
       @events.emit(Agent::Events::MESSAGE_START, message: @history.last)
       @events.emit(Agent::Events::MESSAGE_END, message: @history.last)
@@ -134,6 +137,7 @@ module Crimson
 
     def run_loop
       @abort_controller = false
+      @cached_tool_defs = nil
       @events.emit(Agent::Events::AGENT_START)
 
       iterations = 0
@@ -149,13 +153,12 @@ module Crimson
 
         @events.emit(Agent::Events::TURN_START)
 
-        messages = build_messages
-
-        if @compactor && @compactor.needs_compaction?(@history)
+        if @compactor && @history.length > 10 && @compactor.needs_compaction?(@history)
           @history = @compactor.compact(@history, system_prompt: @system_prompt)
         end
 
-        tools = provider_tool_definitions
+        messages = build_messages
+        tools = cached_tool_definitions
 
         assistant_message, usage = @client.chat(messages: messages, tools: tools) do |text_chunk, tool_event|
           if text_chunk
@@ -171,7 +174,6 @@ module Crimson
 
         track_usage(usage) if usage
         @history << assistant_message
-        append_to_session(assistant_message)
         all_messages << assistant_message
 
         if assistant_message.tool_call?
@@ -241,6 +243,7 @@ module Crimson
         end
       end
 
+      flush_session_buffer
       @events.emit(Agent::Events::AGENT_END, messages: all_messages)
     end
 
@@ -308,8 +311,25 @@ module Crimson
           "total" => @token_usage[:total]
         }
       end
-      @session_manager.append(@session_id, cwd: @session_cwd, entry: entry)
       @last_entry_id = entry.id
+      @session_buffer << entry
+
+      flush_session_buffer if @session_buffer.length >= 3
+    end
+
+    def flush_session_buffer
+      return if @session_buffer.empty?
+      return unless @session_manager && @session_id
+
+      entries = @session_buffer.dup
+      @session_buffer.clear
+      Thread.new do
+        entries.each { |e| @session_manager.append(@session_id, cwd: @session_cwd, entry: e) }
+      end
+    end
+
+    def cached_tool_definitions
+      @cached_tool_defs ||= provider_tool_definitions
     end
   end
 end
