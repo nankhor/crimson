@@ -43,28 +43,35 @@ module Crimson
     end
 
     def setup_reline
+      # Disable autocompletion to avoid double-enter issue
+      Reline.autocompletion = false
+
+      # Simple completion that doesn't interfere with normal input
       Reline.completion_proc = proc { |text|
+        # Only complete if text starts with /
         if text.start_with?("/")
-          @tui.show_command_palette(text)
-          TUI::COMMANDS.keys.select { |cmd| cmd.start_with?(text) }
+          matches = TUI::COMMANDS.keys.select { |cmd| cmd.start_with?(text) }
+          @tui.show_command_palette(text) if matches.any?
+          matches
         else
-          @tui.hide_command_palette
           []
         end
       }
 
       Reline.completion_append_character = ""
-
-      # Handle special keys
-      Reline.pre_input_hook = proc {
-        @tui.render_input_prompt
-      }
     end
 
     def read_input
       @tui.render_input_prompt
       input = Reline.readline("", false)
-      @tui.hide_command_palette
+      
+      # Show command palette if input starts with /
+      if input && input.start_with?("/") && input.length > 1
+        @tui.show_command_palette(input)
+      else
+        @tui.hide_command_palette
+      end
+      
       input
     end
 
