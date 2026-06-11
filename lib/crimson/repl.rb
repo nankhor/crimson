@@ -14,8 +14,6 @@ module Crimson
 
     def start
       $stdout.sync = true
-      Reline.autocompletion = true
-      Reline.completion_case_fold = true
       puts @pastel.bold("Crimson v#{VERSION}")
       puts @pastel.dim("Type /help for commands, /exit to quit")
       puts

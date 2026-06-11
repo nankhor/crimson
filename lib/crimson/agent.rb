@@ -27,6 +27,8 @@ module Crimson
       @session_flush_thread = nil
       @compactor = nil
       @cost_tracker = CostTracker.new
+      @cached_tool_defs = nil
+      @executor = nil
     end
 
     def on(event_type, &handler)
@@ -71,7 +73,6 @@ module Crimson
 
     def prompt(user_input)
       @history << Message::User.new(user_input)
-      @cached_tool_defs = nil
       append_to_session(@history.last)
       @events.emit(Agent::Events::MESSAGE_START, message: @history.last)
       @events.emit(Agent::Events::MESSAGE_END, message: @history.last)
@@ -137,7 +138,6 @@ module Crimson
 
     def run_loop
       @abort_controller = false
-      @cached_tool_defs = nil
       @events.emit(Agent::Events::AGENT_START)
 
       iterations = 0
@@ -158,7 +158,7 @@ module Crimson
         end
 
         messages = build_messages
-        tools = cached_tool_definitions
+        tools = tools_for_message(@history.last&.content.to_s)
 
         assistant_message, usage = @client.chat(messages: messages, tools: tools) do |text_chunk, tool_event|
           if text_chunk
@@ -330,6 +330,31 @@ module Crimson
 
     def cached_tool_definitions
       @cached_tool_defs ||= provider_tool_definitions
+    end
+
+    def tools_for_message(user_input)
+      return cached_tool_definitions if needs_tools?(user_input)
+      []
+    end
+
+    NEEDS_TOOL_PATTERNS = %w[
+      read write edit create fix bug test run exec command search find
+      file files directory folder install update delete remove patch
+      config setup deploy build compile lint format check verify
+      gem npm pip cargo bundle make git docker ls cat touch mkdir rm mv cp
+      grep rg sed awk head tail wc diff code project src spec
+      what's whats list show look open
+    ]
+
+    TRIVIAL_PATTERNS = %w[hi hello hey thanks thank ok yes no bye goodbye sure]
+
+    def needs_tools?(input)
+      return true if @history.any? { |m| m.is_a?(Message::ToolResult) }
+
+      lower = input.downcase.strip
+      return false if TRIVIAL_PATTERNS.include?(lower) || lower.length < 5
+
+      NEEDS_TOOL_PATTERNS.any? { |keyword| lower.include?(keyword) }
     end
   end
 end

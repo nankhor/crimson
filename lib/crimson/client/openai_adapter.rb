@@ -106,6 +106,7 @@ module Crimson
 
         # Assign IDs from tool call chunks if we have them
         collected_tool_calls.each do |_idx, tc|
+          next if tc[:_emitted]
           callback.call(nil, tc)
         end
 
