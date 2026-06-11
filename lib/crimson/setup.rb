@@ -3,13 +3,21 @@ require 'tty-spinner'
 require 'net/http'
 require 'uri'
 require 'json'
+require 'fileutils'
 require_relative 'providers'
 
 module Crimson
   class Setup
+    def self.first_run
+      copy_default_skills
+      run
+    end
+
     def self.run
       prompt = TTY::Prompt.new
-      puts "Welcome to Crimson Setup!"
+      puts "Crimson Setup"
+      puts "============="
+      puts
 
       provider = select_provider(prompt)
       api_key = ask_for_api_key(prompt, provider)
@@ -24,7 +32,8 @@ module Crimson
       model = select_model(prompt, models)
       save_config(provider, api_key, base_url, model)
 
-      puts "Configuration saved successfully!"
+      puts
+      puts "Configuration saved to #{Crimson::CONFIG_FILE}"
     end
 
     private
@@ -84,14 +93,28 @@ module Crimson
     end
 
     def self.save_config(provider, api_key, base_url, model)
-      content = <<~ENV
-        CRIMSON_PROVIDER=#{provider}
-        CRIMSON_MODEL=#{model}
-        CRIMSON_API_KEY=#{api_key}
-        #{"CRIMSON_BASE_URL=#{base_url}" if base_url}
-      ENV
+      config = Crimson::Config.new(
+        provider: provider.to_s,
+        model: model,
+        api_key: api_key,
+        base_url: base_url,
+        max_tokens: 1000
+      )
+      config.save
+    end
 
-      File.write('.crimson', content.strip)
+    def self.copy_default_skills
+      FileUtils.mkdir_p(Crimson::SKILLS_DIR)
+
+      gem_root = File.expand_path("../..", __dir__)
+      bundled_skills_dir = File.join(gem_root, "skills")
+
+      return unless Dir.exist?(bundled_skills_dir)
+
+      Dir.glob(File.join(bundled_skills_dir, "*.md")).each do |file|
+        dest = File.join(Crimson::SKILLS_DIR, File.basename(file))
+        FileUtils.cp(file, dest) unless File.exist?(dest)
+      end
     end
   end
 end

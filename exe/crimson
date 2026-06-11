@@ -1,4 +1,6 @@
-require_relative '../crimson'
+#!/usr/bin/env ruby
+
+require "crimson"
 
 module Crimson
   module CLI
@@ -20,14 +22,13 @@ module Crimson
     end
 
     def self.start_repl
-      config = Crimson.config
-
-      unless config.valid?
-        puts "Crimson is not configured. Run `crimson setup` first."
-        exit 1
+      unless Crimson.configured?
+        puts "Welcome to Crimson! Running initial setup..."
+        puts
+        Crimson::Setup.first_run
       end
 
-      client = Crimson::Client.create(config)
+      client = Crimson::Client.create(Crimson.config)
       registry = Crimson::ToolRegistry.new
       Crimson::Tools::ALL.each { |tool| registry.register(tool) }
 
@@ -43,14 +44,13 @@ module Crimson
     end
 
     def self.run_one_shot(task)
-      config = Crimson.config
-
-      unless config.valid?
-        puts "Crimson is not configured. Run `crimson setup` first."
-        exit 1
+      unless Crimson.configured?
+        puts "Welcome to Crimson! Running initial setup..."
+        puts
+        Crimson::Setup.first_run
       end
 
-      client = Crimson::Client.create(config)
+      client = Crimson::Client.create(Crimson.config)
       registry = Crimson::ToolRegistry.new
       Crimson::Tools::ALL.each { |tool| registry.register(tool) }
 
@@ -66,7 +66,7 @@ module Crimson
     end
 
     def self.build_system_prompt(registry)
-      default_skill = File.read(File.join(__dir__, "..", "skills", "coding.md"))
+      default_skill = read_default_skill
       project_skills = registry.load_skills(File.join(Dir.pwd, "skills"))
 
       parts = [default_skill.strip]
@@ -76,6 +76,16 @@ module Crimson
       parts << "## Project Context\n\n#{context}" if context
 
       parts.join("\n\n")
+    end
+
+    def self.read_default_skill
+      gem_skill = File.join(Crimson::SKILLS_DIR, "coding.md")
+      return File.read(gem_skill) if File.exist?(gem_skill)
+
+      # Fallback: read from gem's bundled skills
+      gem_root = File.expand_path("../..", __FILE__)
+      bundled = File.join(gem_root, "skills", "coding.md")
+      File.read(bundled)
     end
 
     def self.print_help
