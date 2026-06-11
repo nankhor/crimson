@@ -19,6 +19,8 @@ require_relative "crimson/setup"
 require_relative "crimson/project_context"
 require_relative "crimson/session_entry"
 require_relative "crimson/session_manager"
+require_relative "crimson/cost_tracker"
+require_relative "crimson/compactor"
 
 module Crimson
   class Error < StandardError; end

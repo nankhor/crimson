@@ -6,7 +6,7 @@ module Crimson
     MAX_ITERATIONS = 50
     HISTORY_FILE = ".crimson_history"
 
-    attr_reader :tool_registry, :token_usage, :events, :steering, :session_id, :session_cwd
+    attr_reader :tool_registry, :token_usage, :events, :steering, :session_id, :session_cwd, :cost_tracker, :compactor
 
     def initialize(client:, tool_registry:, system_prompt:)
       @client = client
@@ -23,6 +23,8 @@ module Crimson
       @session_id = nil
       @session_cwd = nil
       @last_entry_id = nil
+      @compactor = nil
+      @cost_tracker = CostTracker.new
     end
 
     def on(event_type, &handler)
@@ -53,6 +55,18 @@ module Crimson
       @last_entry_id = entries.last&.id
     end
 
+    def enable_compaction!(client:, max_context_tokens: 100_000)
+      @compactor = Compactor.new(client: client, max_context_tokens: max_context_tokens)
+    end
+
+    def compact!
+      return "Compaction not enabled" unless @compactor
+      return "History too short to compact" if @history.length <= 5
+
+      @history = @compactor.compact(@history, system_prompt: @system_prompt)
+      "Compacted history to #{@history.length} messages"
+    end
+
     def prompt(user_input)
       @history << Message::User.new(user_input)
       append_to_session(@history.last)
@@ -81,6 +95,7 @@ module Crimson
       @history.clear
       @token_usage = { prompt: 0, completion: 0, total: 0 }
       @steering.clear_all
+      @cost_tracker.reset
     end
 
     def history
@@ -135,6 +150,11 @@ module Crimson
         @events.emit(Agent::Events::TURN_START)
 
         messages = build_messages
+
+        if @compactor && @compactor.needs_compaction?(@history)
+          @history = @compactor.compact(@history, system_prompt: @system_prompt)
+        end
+
         tools = provider_tool_definitions
 
         assistant_message, usage = @client.chat(messages: messages, tools: tools) do |text_chunk, tool_event|
@@ -245,6 +265,7 @@ module Crimson
       @token_usage[:prompt] += (usage[:prompt_tokens] || usage["prompt_tokens"] || 0)
       @token_usage[:completion] += (usage[:completion_tokens] || usage["completion_tokens"] || 0)
       @token_usage[:total] += (usage[:total_tokens] || usage["total_tokens"] || 0)
+      @cost_tracker.track(Crimson.config.model, usage)
     end
 
     def serialize_message(msg)

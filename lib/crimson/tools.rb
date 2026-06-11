@@ -201,6 +201,11 @@ module Crimson
 
     module RunCommand
       TOOL_NAME = "run_command"
+      EXECUTION_MODE = :sequential
+
+      class << self
+        attr_accessor :on_update
+      end
 
       def self.definition
         {
@@ -238,24 +243,54 @@ module Crimson
       def self.call(command:, timeout: 30)
         return "Error: No command provided" if command.nil? || command.strip.empty?
 
-        stdout = ""
-        stderr = ""
+        stdout = String.new
+        stderr = String.new
         status = nil
+        start_time = Time.now
 
-        Timeout.timeout(timeout) do
-          stdout, stderr, status = Open3.capture3(command)
+        begin
+          Timeout.timeout(timeout) do
+            Open3.popen3(command) do |stdin, out, err, wait_thr|
+              stdin.close
+
+              readers = [out, err]
+              while readers.any?
+                ready = IO.select(readers, nil, nil, 0.1)
+                next unless ready
+
+                ready[0].each do |io|
+                  chunk = io.read_nonblock(4096, exception: false)
+                  if chunk == :wait_readable || chunk.nil?
+                    readers.delete(io) if io.eof?
+                    next
+                  end
+                  if io == out
+                    stdout << chunk
+                  else
+                    stderr << chunk
+                  end
+                  elapsed = Time.now - start_time
+                  if @on_update
+                    @on_update.call(command, elapsed, stdout.length + stderr.length)
+                  end
+                end
+              end
+
+              status = wait_thr.value
+            end
+          end
+
+          output = String.new
+          output << stdout if !stdout.empty?
+          output << stderr if !stderr.empty?
+          output = "(no output)" if output.strip.empty?
+          output << "\n(exit code: #{status.exitstatus})" unless status.success?
+          output
+        rescue Timeout::Error
+          "Error: Command timed out after #{timeout} seconds"
+        rescue => e
+          "Error executing command: #{e.message}"
         end
-
-        output = String.new
-        output << stdout if stdout && !stdout.empty?
-        output << stderr if stderr && !stderr.empty?
-        output = "(no output)" if output.strip.empty?
-        output << "\n(exit code: #{status.exitstatus})" unless status.success?
-        output
-      rescue Timeout::Error
-        "Error: Command timed out after #{timeout} seconds"
-      rescue => e
-        "Error executing command: #{e.message}"
       end
     end
 
