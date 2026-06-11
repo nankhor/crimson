@@ -74,6 +74,12 @@ module Crimson
         end
       end
 
+      @agent.on(Agent::Events::TOOL_EXECUTION_UPDATE) do |_event, tool_name:, partial_result:, **|
+        next unless tool_name == "run_command"
+        $stdout.write("\r  #{@pastel.dim(partial_result)}")
+        $stdout.flush
+      end
+
       @agent.on(Agent::Events::TURN_START) do
         unless @first_token_received
           start_spinner
@@ -84,7 +90,9 @@ module Crimson
         stop_spinner
         usage = @agent.token_usage
         if usage[:total] > 0
-          puts @pastel.dim("\n  tokens: #{usage[:prompt]} prompt + #{usage[:completion]} completion = #{usage[:total]} total")
+          cost = @agent.cost_tracker.total_cost
+          cost_str = cost > 0 ? " ($#{format("%.4f", cost)})" : ""
+          puts @pastel.dim("\n  tokens: #{usage[:prompt]}↑ #{usage[:completion]}↓ = #{usage[:total]}#{cost_str}")
         end
       end
     end

@@ -57,6 +57,17 @@ module Crimson
           end
         end
 
+        if tc.name == "run_command"
+          tool = @tool_registry.lookup("run_command")
+          if tool
+            tool.on_update = -> (cmd, elapsed, bytes) {
+              @events.emit(Events::TOOL_EXECUTION_UPDATE,
+                tool_call_id: tc.id, tool_name: tc.name,
+                partial_result: "running (#{elapsed.round(1)}s, #{bytes} bytes)")
+            }
+          end
+        end
+
         result = @tool_registry.execute(tc.name, tc.arguments)
         is_error = result.is_a?(String) && result.start_with?("Error")
 
