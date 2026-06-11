@@ -1,100 +1,77 @@
-require 'json'
-require 'pastel'
+require "json"
+require "securerandom"
 
 module Crimson
   class Agent
     MAX_ITERATIONS = 50
     HISTORY_FILE = ".crimson_history"
 
-    attr_reader :tool_registry, :token_usage
+    attr_reader :tool_registry, :token_usage, :events, :steering
 
     def initialize(client:, tool_registry:, system_prompt:)
       @client = client
       @tool_registry = tool_registry
       @system_prompt = system_prompt
       @history = []
-      @pastel = Pastel.new
+      @events = Agent::EventEmitter.new
+      @steering = Agent::SteeringManager.new
       @token_usage = { prompt: 0, completion: 0, total: 0 }
-      @cached_tools = nil
+      @before_tool_call = nil
+      @after_tool_call = nil
+      @abort_controller = false
     end
 
-    def run(user_input)
+    def on(event_type, &handler)
+      @events.on(event_type, &handler)
+    end
+
+    def before_tool_call(&block)
+      @before_tool_call = block
+    end
+
+    def after_tool_call(&block)
+      @after_tool_call = block
+    end
+
+    def prompt(user_input)
       @history << Message::User.new(user_input)
+      @events.emit(Agent::Events::MESSAGE_START, message: @history.last)
+      @events.emit(Agent::Events::MESSAGE_END, message: @history.last)
+      run_loop
+    end
 
-      iterations = 0
+    def continue
+      run_loop
+    end
 
-      loop do
-        iterations += 1
-        if iterations > MAX_ITERATIONS
-          render_error("Max iterations (#{MAX_ITERATIONS}) reached. Stopping.")
-          break
-        end
+    def steer(message)
+      @steering.steer(Message::User.new(message))
+    end
 
-        messages = build_messages
-        tools = provider_tool_definitions
+    def follow_up(message)
+      @steering.follow_up(Message::User.new(message))
+    end
 
-        streamed_content = false
-        current_text = ""
-
-        # Thinking animation
-        thinking = true
-        spinner_thread = Thread.new do
-          frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-          i = 0
-          while thinking
-            $stdout.write("\r  \e[36m#{frames[i % frames.length]}\e[0m Thinking...")
-            $stdout.flush
-            i += 1
-            sleep 0.08
-          end
-          $stdout.write("\r\e[2K")
-          $stdout.flush
-        end
-
-        response, usage = @client.chat(messages: messages, tools: tools) do |text_chunk, tool_event|
-          if thinking
-            thinking = false
-            spinner_thread.join(2)
-            $stdout.write("\r\e[2K")
-            $stdout.flush
-          end
-
-          if text_chunk
-            current_text << text_chunk
-            render_streaming(text_chunk)
-            streamed_content = true
-          elsif tool_event
-            render_tool_call_from_event(tool_event)
-          end
-        end
-
-        if thinking
-          thinking = false
-          spinner_thread.join(2)
-          $stdout.write("\r\e[2K")
-          $stdout.flush
-        end
-
-        track_usage(usage) if usage
-        @history << response
-
-        # Render content if it wasn't streamed (e.g., error messages)
-        if response.content && !response.content.empty? && !streamed_content
-          render_agent_text(response.content)
-        end
-
-        if response.tool_call?
-          execute_tool_calls(response)
-        else
-          render_usage(usage)
-          break
-        end
-      end
+    def abort!
+      @abort_controller = true
     end
 
     def reset
       @history.clear
       @token_usage = { prompt: 0, completion: 0, total: 0 }
+      @steering.clear_all
+    end
+
+    def history
+      @history.dup
+    end
+
+    def history=(new_history)
+      @history = new_history.dup
+    end
+
+    def run(user_input)
+      prompt(user_input)
     end
 
     def save_history
@@ -119,6 +96,111 @@ module Crimson
 
     private
 
+    def run_loop
+      @abort_controller = false
+      @events.emit(Agent::Events::AGENT_START)
+
+      iterations = 0
+      all_messages = []
+
+      loop do
+        iterations += 1
+        if iterations > MAX_ITERATIONS
+          break
+        end
+
+        break if @abort_controller
+
+        @events.emit(Agent::Events::TURN_START)
+
+        messages = build_messages
+        tools = provider_tool_definitions
+
+        assistant_message, usage = @client.chat(messages: messages, tools: tools) do |text_chunk, tool_event|
+          if text_chunk
+            @events.emit(Agent::Events::MESSAGE_UPDATE,
+              delta: text_chunk, content_index: 0)
+          end
+        end
+
+        break unless assistant_message
+
+        @events.emit(Agent::Events::MESSAGE_START, message: assistant_message)
+        @events.emit(Agent::Events::MESSAGE_END, message: assistant_message)
+
+        track_usage(usage) if usage
+        @history << assistant_message
+        all_messages << assistant_message
+
+        if assistant_message.tool_call?
+          executor = Agent::ToolExecutor.new(
+            @tool_registry, @events,
+            before_hook: @before_tool_call,
+            after_hook: @after_tool_call
+          )
+
+          results = executor.execute(assistant_message.tool_calls, @history)
+
+          tool_results = results.map do |r|
+            Message::ToolResult.new(
+              tool_call_id: r[:tool_call].id,
+              name: r[:tool_call].name,
+              content: r[:result]
+            )
+          end
+
+          tool_results.each do |tr|
+            @history << tr
+            all_messages << tr
+          end
+
+          @events.emit(Agent::Events::TURN_END,
+            message: assistant_message, tool_results: results)
+
+          if @abort_controller
+            break
+          end
+
+          if @steering.has_steering?
+            steering_msgs = @steering.pop_all_steering
+            steering_msgs.each do |msg|
+              @history << msg
+              all_messages << msg
+            end
+          end
+        else
+          @events.emit(Agent::Events::TURN_END,
+            message: assistant_message, tool_results: [])
+
+          if @abort_controller
+            break
+          end
+
+          if @steering.has_steering?
+            steering_msgs = @steering.pop_all_steering
+            steering_msgs.each do |msg|
+              @history << msg
+              all_messages << msg
+            end
+            next
+          end
+
+          if @steering.has_follow_up?
+            follow_up_msgs = @steering.pop_all_follow_up
+            follow_up_msgs.each do |msg|
+              @history << msg
+              all_messages << msg
+            end
+            next
+          end
+
+          break
+        end
+      end
+
+      @events.emit(Agent::Events::AGENT_END, messages: all_messages)
+    end
+
     def build_messages
       msgs = []
       msgs << Message::System.new(@system_prompt) unless @system_prompt.empty?
@@ -127,25 +209,11 @@ module Crimson
     end
 
     def provider_tool_definitions
-      @cached_tools ||= begin
-        sdk = PROVIDERS[Crimson.config.provider.to_sym][:sdk]
-        case sdk
-        when :openai then @tool_registry.openai_definitions
-        when :anthropic then @tool_registry.anthropic_definitions
-        else []
-        end
-      end
-    end
-
-    def execute_tool_calls(response)
-      response.tool_calls.each do |tc|
-        result = @tool_registry.execute(tc.name, tc.arguments)
-        render_tool_result(tc.name, result)
-        @history << Message::ToolResult.new(
-          tool_call_id: tc.id,
-          name: tc.name,
-          content: result
-        )
+      sdk = PROVIDERS[Crimson.config.provider.to_sym][:sdk]
+      case sdk
+      when :openai then @tool_registry.openai_definitions
+      when :anthropic then @tool_registry.anthropic_definitions
+      else []
       end
     end
 
@@ -156,94 +224,16 @@ module Crimson
       @token_usage[:total] += (usage[:total_tokens] || usage["total_tokens"] || 0)
     end
 
-    def render_streaming(text)
-      $stdout.print(text)
-      $stdout.flush
-    end
-
-    def render_agent_text(text)
-      puts text
-    end
-
-    def render_tool_call_from_event(tool_event)
-      name = tool_event[:name]
-      args = tool_event[:arguments]
-      path = extract_path(args)
-      print_tool_call_fallback(name, path)
-    end
-
-    def render_tool_result(name, result)
-      if result.include?("--- ") && result.include?("+++ ")
-        puts result
-      else
-        truncated = truncate(result, 200)
-        puts @pastel.dim("  -> #{truncated}")
-      end
-    end
-
-    def render_usage(usage)
-      return unless usage
-      prompt = usage[:prompt_tokens] || usage["prompt_tokens"] || 0
-      completion = usage[:completion_tokens] || usage["completion_tokens"] || 0
-      total = prompt + completion
-      puts @pastel.dim("\n  tokens: #{prompt} prompt + #{completion} completion = #{total} total")
-    end
-
-    def render_error(message)
-      puts @pastel.red(message)
-    end
-
-    def print_tool_call_fallback(name, path)
-      write_tools = ["write_file", "edit_file", "run_command"]
-      is_write = write_tools.include?(name)
-
-      if path
-        if is_write
-          puts @pastel.bold.green("  #{name}(#{path})")
-        else
-          puts @pastel.bold.red("  #{name}(#{path})")
-        end
-      else
-        if is_write
-          puts @pastel.bold.green("  #{name}")
-        else
-          puts @pastel.bold.cyan("  #{name}")
-        end
-      end
-    end
-
-    def print_tool_result_fallback(name, result)
-      if result.include?("--- ") && result.include?("+++ ")
-        puts result
-      else
-        truncated = truncate(result, 200)
-        puts @pastel.dim("  -> #{truncated}")
-      end
-    end
-
-    def extract_path(args)
-      parsed = if args.is_a?(String)
-                 JSON.parse(args) rescue {}
-               else
-                 args
-               end
-      parsed["path"] || parsed[:path]
-    rescue
-      nil
-    end
-
-    def truncate(text, max_len)
-      return "" if text.nil?
-      cleaned = text.gsub("\n", "\\n")
-      cleaned.length > max_len ? "#{cleaned[0...max_len]}..." : cleaned
-    end
-
     def serialize_message(msg)
       case msg
       when Message::User
         { type: "user", content: msg.content }
       when Message::Assistant
-        { type: "assistant", content: msg.content, tool_calls: msg.tool_calls.map { |tc| { id: tc.id, name: tc.name, arguments: tc.arguments } } }
+        {
+          type: "assistant",
+          content: msg.content,
+          tool_calls: msg.tool_calls.map { |tc| { id: tc.id, name: tc.name, arguments: tc.arguments } }
+        }
       when Message::ToolResult
         { type: "tool_result", tool_call_id: msg.tool_call_id, name: msg.name, content: msg.content }
       end

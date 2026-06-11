@@ -62,7 +62,81 @@ module Crimson
         system_prompt: system_prompt
       )
 
-      agent.run(task)
+      attach_one_shot_handlers(agent)
+      agent.prompt(task)
+    end
+
+    def self.attach_one_shot_handlers(agent)
+      pastel = Pastel.new
+      spinner_active = false
+      spinner_thread = nil
+      first_token = false
+
+      start_spinner = -> {
+        next if spinner_active
+        spinner_active = true
+        first_token = false
+        spinner_thread = Thread.new do
+          frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+          i = 0
+          while spinner_active
+            $stdout.write("\r  \e[36m#{frames[i % frames.length]}\e[0m Thinking...")
+            $stdout.flush
+            i += 1
+            sleep 0.08
+          end
+          $stdout.write("\r\e[2K")
+          $stdout.flush
+        end
+      }
+
+      stop_spinner = -> {
+        next unless spinner_active
+        spinner_active = false
+        spinner_thread&.join(2)
+        spinner_thread = nil
+        $stdout.write("\r\e[2K")
+        $stdout.flush
+      }
+
+      agent.on(Agent::Events::AGENT_START) { start_spinner.call }
+
+      agent.on(Agent::Events::MESSAGE_UPDATE) do |_event, delta:, **|
+        unless first_token
+          stop_spinner.call
+          first_token = true
+        end
+        $stdout.print(delta)
+        $stdout.flush
+      end
+
+      agent.on(Agent::Events::TOOL_EXECUTION_START) do |_event, tool_name:, args:, **|
+        stop_spinner.call
+        path = args.is_a?(Hash) ? (args["path"] || args[:path]) : nil
+        if path
+          puts pastel.bold.cyan("  #{tool_name}(#{path})")
+        else
+          puts pastel.bold.cyan("  #{tool_name}")
+        end
+      end
+
+      agent.on(Agent::Events::TOOL_EXECUTION_END) do |_event, result:, is_error:, **|
+        truncated = result.to_s.gsub("\n", "\\n")
+        truncated = "#{truncated[0...200]}..." if truncated.length > 200
+        if is_error
+          puts pastel.red("  -> #{truncated}")
+        else
+          puts pastel.dim("  -> #{truncated}")
+        end
+      end
+
+      agent.on(Agent::Events::AGENT_END) do
+        stop_spinner.call
+        usage = agent.token_usage
+        if usage[:total] > 0
+          puts pastel.dim("\n  tokens: #{usage[:prompt]} prompt + #{usage[:completion]} completion = #{usage[:total]} total")
+        end
+      end
     end
 
     def self.build_system_prompt(registry)

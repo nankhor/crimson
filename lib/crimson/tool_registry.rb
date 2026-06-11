@@ -41,6 +41,10 @@ module Crimson
       @anthropic_defs ||= @tools.values.map(&:anthropic_definition)
     end
 
+    def lookup(tool_name)
+      @tools[tool_name]
+    end
+
     def tool_names
       @tools.keys
     end
