@@ -8,14 +8,14 @@ module Crimson
       case command
       when "setup"
         Crimson::Setup.run
-      when nil, "chat", "repl"
-        start_repl
       when "help", "--help", "-h"
         print_help
+      when nil
+        start_repl
+      when /^\//
+        start_repl
       else
-        puts "Unknown command: #{command}"
-        print_help
-        exit 1
+        run_one_shot(args.join(" "))
       end
     end
 
@@ -28,11 +28,10 @@ module Crimson
       end
 
       client = Crimson::Client.create(config)
-
       registry = Crimson::ToolRegistry.new
       Crimson::Tools::ALL.each { |tool| registry.register(tool) }
 
-      system_prompt = build_system_prompt
+      system_prompt = build_system_prompt(registry)
 
       agent = Crimson::Agent.new(
         client: client,
@@ -43,24 +42,54 @@ module Crimson
       Crimson::Repl.new(agent).start
     end
 
-    def self.build_system_prompt
+    def self.run_one_shot(task)
+      config = Crimson.config
+
+      unless config.valid?
+        puts "Crimson is not configured. Run `crimson setup` first."
+        exit 1
+      end
+
+      client = Crimson::Client.create(config)
+      registry = Crimson::ToolRegistry.new
+      Crimson::Tools::ALL.each { |tool| registry.register(tool) }
+
+      system_prompt = build_system_prompt(registry)
+
+      agent = Crimson::Agent.new(
+        client: client,
+        tool_registry: registry,
+        system_prompt: system_prompt
+      )
+
+      agent.run(task)
+    end
+
+    def self.build_system_prompt(registry)
       default_skill = File.read(File.join(__dir__, "..", "skills", "coding.md"))
       project_skills = registry.load_skills(File.join(Dir.pwd, "skills"))
 
       parts = [default_skill.strip]
       parts << project_skills.strip unless project_skills.empty?
+
+      context = Crimson::ProjectContext.detect
+      parts << "## Project Context\n\n#{context}" if context
+
       parts.join("\n\n")
     end
 
     def self.print_help
       puts <<~HELP
-        Usage: crimson [command]
+        Usage: crimson [command] [task]
 
         Commands:
-          setup   Configure your provider and API key
-          help    Show this help message
+          setup              Configure your provider and API key
+          help               Show this help message
 
         Running without a command starts the interactive REPL.
+        Passing a task string runs it in one-shot mode:
+
+          crimson "fix the failing test in spec/foo_spec.rb"
       HELP
     end
   end

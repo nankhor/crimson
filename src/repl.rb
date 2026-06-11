@@ -54,6 +54,9 @@ module Crimson
             /clear   - Clear conversation history
             /model   - Show current model
             /tools   - List available tools
+            /save    - Save conversation to file
+            /load    - Load conversation from file
+            /usage   - Show total token usage
         HELP
       when "/clear"
         @agent.reset
@@ -65,6 +68,16 @@ module Crimson
       when "/tools"
         puts "Available tools:"
         puts @agent.tool_registry.tool_names.map { |n| "  - #{n}" }.join("\n")
+      when "/save"
+        puts @agent.save_history
+      when "/load"
+        puts @agent.load_history
+      when "/usage"
+        usage = @agent.token_usage
+        puts "Token usage this session:"
+        puts "  Prompt:     #{usage[:prompt]}"
+        puts "  Completion: #{usage[:completion]}"
+        puts "  Total:      #{usage[:total]}"
       else
         puts @pastel.yellow("Unknown command: #{input}. Type /help for available commands.")
       end

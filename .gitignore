@@ -1,4 +1,5 @@
 .crimson
+.crimson_history
 .ruby-lsp/
 *.gem
 .bundle/

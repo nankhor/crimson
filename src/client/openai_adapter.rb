@@ -38,8 +38,17 @@ module Crimson
       def stream_chat(params, &callback)
         collected_content = String.new
         collected_tool_calls = {}
+        collected_usage = nil
 
         stream_callback = proc do |chunk|
+          if chunk["usage"]
+            collected_usage = {
+              prompt_tokens: chunk.dig("usage", "prompt_tokens") || 0,
+              completion_tokens: chunk.dig("usage", "completion_tokens") || 0,
+              total_tokens: chunk.dig("usage", "total_tokens") || 0
+            }
+          end
+
           delta = chunk.dig("choices", 0, "delta")
           next unless delta
 
@@ -74,6 +83,7 @@ module Crimson
           messages: params[:messages],
           model: params[:model],
           tools: params[:tools],
+          stream_options: { include_usage: true },
           stream: stream_callback
         )
 
@@ -81,9 +91,9 @@ module Crimson
           callback.call(nil, tc)
         end
 
-        build_assistant_message(collected_content, collected_tool_calls.values)
+        [build_assistant_message(collected_content, collected_tool_calls.values), collected_usage]
       rescue => e
-        Message::Assistant.new(content: "Error communicating with #{provider_name}: #{e.message}")
+        [Message::Assistant.new(content: "Error communicating with #{provider_name}: #{e.message}"), nil]
       end
 
       def non_stream_chat(params)
@@ -94,17 +104,21 @@ module Crimson
         )
 
         choice = response.choices&.first
-        return Message::Assistant.new(content: "") unless choice
+        return [Message::Assistant.new(content: ""), nil] unless choice
 
         msg = choice.message
         tool_calls = parse_tool_calls(msg.tool_calls) if msg.tool_calls
 
-        Message::Assistant.new(
-          content: msg.content,
-          tool_calls: tool_calls || []
-        )
+        usage = response.usage
+        usage_h = usage ? {
+          prompt_tokens: usage.prompt_tokens || 0,
+          completion_tokens: usage.completion_tokens || 0,
+          total_tokens: usage.total_tokens || 0
+        } : nil
+
+        [Message::Assistant.new(content: msg.content, tool_calls: tool_calls || []), usage_h]
       rescue => e
-        Message::Assistant.new(content: "Error communicating with #{provider_name}: #{e.message}")
+        [Message::Assistant.new(content: "Error communicating with #{provider_name}: #{e.message}"), nil]
       end
 
       def parse_tool_calls(raw_tool_calls)
@@ -115,11 +129,7 @@ module Crimson
             {}
           end
 
-          Message::ToolCall.new(
-            id: tc.id,
-            name: tc.function.name,
-            arguments: args
-          )
+          Message::ToolCall.new(id: tc.id, name: tc.function.name, arguments: args)
         end
       end
 
@@ -130,12 +140,7 @@ module Crimson
           rescue JSON::ParserError
             {}
           end
-
-          Message::ToolCall.new(
-            id: raw[:id],
-            name: raw[:name],
-            arguments: args
-          )
+          Message::ToolCall.new(id: raw[:id], name: raw[:name], arguments: args)
         end
 
         Message::Assistant.new(

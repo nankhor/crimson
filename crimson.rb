@@ -11,6 +11,7 @@ require_relative 'src/client/factory'
 require_relative 'src/agent'
 require_relative 'src/repl'
 require_relative 'src/setup'
+require_relative 'src/project_context'
 
 module Crimson
   class Error < StandardError; end

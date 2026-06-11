@@ -61,6 +61,7 @@ module Crimson
         collected_content = String.new
         collected_tool_calls = {}
         current_tool_use = nil
+        collected_usage = nil
 
         stream = @client.messages.stream(
           model: params[:model],
@@ -72,6 +73,15 @@ module Crimson
 
         stream.each do |event|
           case event.type
+          when "message_delta"
+            if event.respond_to?(:usage)
+              u = event.usage
+              collected_usage = {
+                prompt_tokens: u&.input_tokens || 0,
+                completion_tokens: u&.output_tokens || 0,
+                total_tokens: (u&.input_tokens || 0) + (u&.output_tokens || 0)
+              }
+            end
           when "content_block_delta"
             delta = event.delta
             next unless delta
@@ -106,9 +116,9 @@ module Crimson
           end
         end
 
-        build_assistant_message(collected_content, collected_tool_calls.values)
+        [build_assistant_message(collected_content, collected_tool_calls.values), collected_usage]
       rescue => e
-        Message::Assistant.new(content: "Error communicating with Anthropic: #{e.message}")
+        [Message::Assistant.new(content: "Error communicating with Anthropic: #{e.message}"), nil]
       end
 
       def non_stream_chat(params)
@@ -136,12 +146,16 @@ module Crimson
           end
         end
 
-        Message::Assistant.new(
-          content: content.empty? ? nil : content.to_s,
-          tool_calls: tool_calls
-        )
+        usage = response.usage
+        usage_h = usage ? {
+          prompt_tokens: usage.input_tokens || 0,
+          completion_tokens: usage.output_tokens || 0,
+          total_tokens: (usage.input_tokens || 0) + (usage.output_tokens || 0)
+        } : nil
+
+        [Message::Assistant.new(content: content.empty? ? nil : content.to_s, tool_calls: tool_calls), usage_h]
       rescue => e
-        Message::Assistant.new(content: "Error communicating with Anthropic: #{e.message}")
+        [Message::Assistant.new(content: "Error communicating with Anthropic: #{e.message}"), nil]
       end
 
       def build_assistant_message(content, tool_calls)
@@ -151,12 +165,7 @@ module Crimson
           rescue JSON::ParserError
             {}
           end
-
-          Message::ToolCall.new(
-            id: raw[:id],
-            name: raw[:name],
-            arguments: args
-          )
+          Message::ToolCall.new(id: raw[:id], name: raw[:name], arguments: args)
         end
 
         Message::Assistant.new(

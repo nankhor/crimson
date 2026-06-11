@@ -346,6 +346,62 @@ module Crimson
       end
     end
 
-    ALL = [ReadFile, WriteFile, EditFile, ListDirectory, RunCommand, SearchFiles].freeze
+    module Glob
+      TOOL_NAME = "glob"
+
+      def self.definition
+        {
+          type: "function",
+          function: {
+            name: TOOL_NAME,
+            description: "Find files matching a glob pattern (e.g. '**/*.rb', 'src/**/*.ts'). Returns sorted file paths.",
+            parameters: {
+              type: "object",
+              properties: {
+                pattern: { type: "string", description: "The glob pattern to match files against" },
+                path: { type: "string", description: "The directory to search in. Defaults to current directory." }
+              },
+              required: ["pattern"]
+            }
+          }
+        }
+      end
+
+      def self.anthropic_definition
+        {
+          name: TOOL_NAME,
+          description: "Find files matching a glob pattern (e.g. '**/*.rb', 'src/**/*.ts'). Returns sorted file paths.",
+          input_schema: {
+            type: "object",
+            properties: {
+              pattern: { type: "string", description: "The glob pattern to match files against" },
+              path: { type: "string", description: "The directory to search in. Defaults to current directory." }
+            },
+            required: ["pattern"]
+          }
+        }
+      end
+
+      def self.call(pattern:, path: ".")
+        return "Error: No pattern provided" if pattern.nil? || pattern.strip.empty?
+
+        expanded = File.expand_path(path)
+        return "Error: Directory not found: #{path}" unless Dir.exist?(expanded)
+
+        files = Dir.glob(File.join(expanded, pattern)).sort
+
+        if files.empty?
+          "No files found matching pattern: #{pattern}"
+        elsif files.length > 200
+          "#{files.first(200).join("\n")}\n... (truncated, #{files.length - 200} more files)"
+        else
+          files.join("\n")
+        end
+      rescue => e
+        "Error searching files: #{e.message}"
+      end
+    end
+
+    ALL = [ReadFile, WriteFile, EditFile, ListDirectory, RunCommand, SearchFiles, Glob].freeze
   end
 end
