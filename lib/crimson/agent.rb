@@ -18,8 +18,7 @@ module Crimson
       @cached_tools = nil
     end
 
-    def run(user_input, tui = nil)
-      @tui = tui
+    def run(user_input)
       @history << Message::User.new(user_input)
 
       iterations = 0
@@ -129,67 +128,40 @@ module Crimson
     end
 
     def render_streaming(text)
-      if @tui
-        @tui.render_streaming(text)
-      else
-        $stdout.print(text)
-        $stdout.flush
-      end
+      $stdout.print(text)
+      $stdout.flush
     end
 
     def render_agent_text(text)
-      if @tui
-        @tui.render_agent_text(text)
-      else
-        puts text
-      end
+      puts text
     end
 
     def render_tool_call_from_event(tool_event)
       name = tool_event[:name]
       args = tool_event[:arguments]
       path = extract_path(args)
-
-      if @tui
-        @tui.render_tool_call(name, path)
-      else
-        print_tool_call_fallback(name, path)
-      end
+      print_tool_call_fallback(name, path)
     end
 
     def render_tool_result(name, result)
-      if @tui
-        if result.include?("--- ") && result.include?("+++ ")
-          @tui.render_tool_result(result)
-        else
-          truncated = truncate(result, 200)
-          @tui.render_tool_result(truncated)
-        end
+      if result.include?("--- ") && result.include?("+++ ")
+        puts result
       else
-        print_tool_result_fallback(name, result)
+        truncated = truncate(result, 200)
+        puts @pastel.dim("  -> #{truncated}")
       end
     end
 
     def render_usage(usage)
       return unless usage
-
       prompt = usage[:prompt_tokens] || usage["prompt_tokens"] || 0
       completion = usage[:completion_tokens] || usage["completion_tokens"] || 0
       total = prompt + completion
-
-      if @tui
-        @tui.render_usage(prompt, completion, total)
-      else
-        puts @pastel.dim("\n  tokens: #{prompt} prompt + #{completion} completion = #{total} total")
-      end
+      puts @pastel.dim("\n  tokens: #{prompt} prompt + #{completion} completion = #{total} total")
     end
 
     def render_error(message)
-      if @tui
-        @tui.render_error(message)
-      else
-        puts @pastel.red(message)
-      end
+      puts @pastel.red(message)
     end
 
     def print_tool_call_fallback(name, path)
