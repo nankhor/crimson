@@ -10,13 +10,17 @@ module Crimson
       @pastel = Pastel.new
       @output_handler = OutputHandler.new
       @output_handler.attach(agent)
+      @tui = @output_handler.tui
       setup_readline
     end
 
     def start
-      puts @pastel.bold("Crimson v#{VERSION}")
-      puts @pastel.dim("Type /help for commands, /exit to quit")
-      puts
+      @output_handler.start
+
+      # Show welcome message via TUI
+      @tui.append_markdown("**Crimson v#{VERSION}**")
+      @tui.append_markdown("Type `/help` for commands, `/exit` to quit")
+      @tui.request_render
 
       loop do
         input = Reline.readline("> ", true)
@@ -31,11 +35,17 @@ module Crimson
         else
           @agent.prompt(input)
         end
+      rescue Interrupt
+        @tui.append_markdown("*Operation cancelled by user.*")
+        @tui.request_render
       rescue => e
-        puts @pastel.red("Error: #{e.message}")
+        @tui.append_markdown("**Error:** #{e.message}")
+        @tui.request_render
       end
 
-      puts @pastel.dim("Goodbye!")
+      @output_handler.stop
+      @tui.append_markdown("*Goodbye!*")
+      @tui.request_render
     end
 
     private
@@ -43,46 +53,27 @@ module Crimson
     def handle_command(input)
       case input
       when "/help"
-        puts @pastel.bold("Commands:")
-        puts "  /help       Show help message"
-        puts "  /clear      Clear conversation history"
-        puts "  /model      Switch model (interactive selector)"
-        puts "  /thinking   Set thinking level (off/low/medium/high)"
-        puts "  /tools      List available tools"
-        puts "  /save       Save conversation to file"
-        puts "  /load       Load conversation from file"
-        puts "  /usage      Show token usage and cost"
-        puts "  /sessions   List sessions for current directory"
-        puts "  /name       Set session name"
-        puts "  /session    Show session info"
-        puts "  /fork       Fork current session into new branch"
-        puts "  /tree       Show conversation tree"
-        puts "  /compact    Compact conversation history"
-        puts "  /exit       Exit crimson"
+        show_help
       when "/clear"
         @agent.reset
-        puts @pastel.dim("Conversation cleared.")
+        @tui.clear_markdown
+        @tui.clear_tool_executions
+        @tui.append_markdown("*Conversation cleared.*")
+        @tui.request_render
       when "/model"
         handle_model_switch
       when "/thinking"
         handle_thinking
       when "/tools"
-        puts @pastel.bold("Available tools:")
-        @agent.tool_registry.tool_names.each do |name|
-          puts "  - #{name}"
-        end
+        show_tools
       when "/save"
-        puts @agent.save_history
+        @tui.append_markdown(@agent.save_history)
+        @tui.request_render
       when "/load"
-        puts @agent.load_history
+        @tui.append_markdown(@agent.load_history)
+        @tui.request_render
       when "/usage"
-        usage = @agent.token_usage
-        cost = @agent.cost_tracker.total_cost
-        puts @pastel.bold("Token usage:")
-        puts "  Prompt:     #{usage[:prompt]}"
-        puts "  Completion: #{usage[:completion]}"
-        puts "  Total:      #{usage[:total]}"
-        puts "  Cost:       $#{format('%.4f', cost)}" if cost > 0
+        show_usage
       when "/sessions"
         handle_sessions
       when "/name"
@@ -94,59 +85,105 @@ module Crimson
       when "/tree"
         handle_tree
       when "/compact"
-        if @agent.compactor
-          result = @agent.compact!
-          puts @pastel.dim(result)
-        else
-          puts @pastel.yellow("Compaction not enabled.")
-        end
+        handle_compact
       else
         if input.start_with?("/name ")
           handle_name_set(input[6..].strip)
         else
-          puts @pastel.yellow("Unknown command: #{input}. Type /help for commands.")
+          @tui.append_markdown("*Unknown command: #{input}. Type `/help` for commands.*")
+          @tui.request_render
         end
       end
     end
 
+    def show_help
+      help_text = <<~HELP
+        **Commands:**
+        - `/help`       Show help message
+        - `/clear`      Clear conversation history
+        - `/model`      Switch model (interactive selector)
+        - `/thinking`   Set thinking level (off/low/medium/high)
+        - `/tools`      List available tools
+        - `/save`       Save conversation to file
+        - `/load`       Load conversation from file
+        - `/usage`      Show token usage and cost
+        - `/sessions`   List sessions for current directory
+        - `/name`       Set session name
+        - `/session`    Show session info
+        - `/fork`       Fork current session into new branch
+        - `/tree`       Show conversation tree
+        - `/compact`    Compact conversation history
+        - `/exit`       Exit crimson
+      HELP
+      @tui.append_markdown(help_text)
+      @tui.request_render
+    end
+
+    def show_tools
+      tools = @agent.tool_registry.tool_names.map { |n| "- #{n}" }.join("\n")
+      @tui.append_markdown("**Available tools:**\n#{tools}")
+      @tui.request_render
+    end
+
+    def show_usage
+      usage = @agent.token_usage
+      cost = @agent.cost_tracker.total_cost
+      text = <<~USAGE
+        **Token usage:**
+        - Prompt:     #{usage[:prompt]}
+        - Completion: #{usage[:completion]}
+        - Total:      #{usage[:total]}
+      USAGE
+      text += "- Cost:       $#{format('%.4f', cost)}" if cost > 0
+      @tui.append_markdown(text)
+      @tui.request_render
+    end
+
     def handle_sessions
-      return puts(@pastel.dim("No active session.")) unless @agent.session_id
+      unless @agent.session_id
+        @tui.append_markdown("*No active session.*")
+        @tui.request_render
+        return
+      end
 
       manager = SessionManager.new
       sessions = manager.list(cwd: Dir.pwd)
       if sessions.empty?
-        puts @pastel.dim("No sessions found.")
+        @tui.append_markdown("*No sessions found.*")
       else
-        puts @pastel.bold("Sessions:")
+        lines = ["**Sessions:**"]
         sessions.each do |s|
           current = s.id == @agent.session_id ? " (current)" : ""
           name_str = s.name ? "[#{s.name}] " : ""
           preview = s.preview || "(no preview)"
-          puts "  #{@pastel.cyan(s.id[0..7])} #{name_str}#{preview} #{s.last_timestamp}#{current}"
+          lines << "- `#{s.id[0..7]}` #{name_str}#{preview} #{s.last_timestamp}#{current}"
         end
+        @tui.append_markdown(lines.join("\n"))
       end
+      @tui.request_render
     end
 
     def handle_model_switch
       config = @agent.config || Crimson.config
-      puts @pastel.dim("Current: #{PROVIDERS[config.provider.to_sym][:name]} / #{config.model}")
-      puts
+      @tui.append_markdown("*Current: #{PROVIDERS[config.provider.to_sym][:name]} / #{config.model}*")
 
       begin
         prompt = TTY::Prompt.new
         models = fetch_available_models(config)
         if models.empty?
-          puts @pastel.yellow("Could not fetch model list. Showing current model only.")
+          @tui.append_markdown("*Could not fetch model list. Showing current model only.*")
+          @tui.request_render
           return
         end
 
         selected = prompt.select("Select model:", models.map { |m| { name: m, value: m } })
         @agent.switch_model(selected)
         @agent.config.save
-        puts @pastel.dim("Switched to: #{selected}")
+        @tui.append_markdown("*Switched to: #{selected}*")
       rescue => e
-        puts @pastel.red("Error switching model: #{e.message}")
+        @tui.append_markdown("**Error switching model:** #{e.message}")
       end
+      @tui.request_render
     end
 
     def fetch_available_models(config)
@@ -175,8 +212,7 @@ module Crimson
     def handle_thinking
       config = @agent.config || Crimson.config
       current = config.thinking_level || "off"
-      puts @pastel.dim("Current thinking level: #{current}")
-      puts
+      @tui.append_markdown("*Current thinking level: #{current}*")
 
       begin
         prompt = TTY::Prompt.new
@@ -184,81 +220,127 @@ module Crimson
         config.thinking_level = level
         config.save
         @agent.config = config
-        puts @pastel.dim("Thinking level set to: #{level}")
+        @tui.append_markdown("*Thinking level set to: #{level}*")
       rescue => e
-        puts @pastel.red("Error setting thinking level: #{e.message}")
+        @tui.append_markdown("**Error setting thinking level:** #{e.message}")
       end
+      @tui.request_render
     end
 
     def handle_name
-      return puts(@pastel.yellow("No active session.")) unless @agent.session_id
-      puts @pastel.dim("Usage: /name <session name>")
+      unless @agent.session_id
+        @tui.append_markdown("*No active session.*")
+        @tui.request_render
+        return
+      end
+      @tui.append_markdown("*Usage: /name <session name>*")
+      @tui.request_render
     end
 
     def handle_name_set(name)
-      return puts(@pastel.yellow("No active session.")) unless @agent.session_id
-      return puts(@pastel.yellow("Usage: /name <session name>")) if name.empty?
+      unless @agent.session_id
+        @tui.append_markdown("*No active session.*")
+        @tui.request_render
+        return
+      end
+      if name.empty?
+        @tui.append_markdown("*Usage: /name <session name>*")
+        @tui.request_render
+        return
+      end
 
       manager = SessionManager.new
       manager.set_name(@agent.session_id, cwd: Dir.pwd, name: name)
-      puts @pastel.dim("Session name set to: #{name}")
+      @tui.append_markdown("*Session name set to: #{name}*")
+      @tui.request_render
     end
 
     def handle_session_info
-      return puts(@pastel.dim("No active session.")) unless @agent.session_id
+      unless @agent.session_id
+        @tui.append_markdown("*No active session.*")
+        @tui.request_render
+        return
+      end
 
       manager = SessionManager.new
       header = manager.load_header(@agent.session_id, cwd: Dir.pwd)
       entries = manager.load(@agent.session_id, cwd: Dir.pwd)
 
-      puts @pastel.bold("Session info:")
-      puts "  ID:       #{@agent.session_id}"
-      puts "  Name:     #{header&.dig('name') || '(unnamed)'}" if header
-      puts "  Created:  #{header&.dig('timestamp')}" if header
-      puts "  CWD:      #{@agent.session_cwd}"
-      puts "  Entries:  #{entries.length}"
-
       usage = @agent.token_usage
-      puts "  Tokens:   #{usage[:total]} (#{usage[:prompt]} prompt + #{usage[:completion]} completion)"
       cost = @agent.cost_tracker.total_cost
-      puts "  Cost:     $#{format('%.4f', cost)}" if cost > 0
+
+      text = <<~INFO
+        **Session info:**
+        - ID:       #{@agent.session_id}
+        - Name:     #{header&.dig('name') || '(unnamed)'}
+        - Created:  #{header&.dig('timestamp')}
+        - CWD:      #{@agent.session_cwd}
+        - Entries:  #{entries.length}
+        - Tokens:   #{usage[:total]} (#{usage[:prompt]} prompt + #{usage[:completion]} completion)
+      INFO
+      text += "- Cost:     $#{format('%.4f', cost)}" if cost > 0
+
+      @tui.append_markdown(text)
+      @tui.request_render
     end
 
     def handle_fork
-      return puts(@pastel.yellow("No active session to fork.")) unless @agent.session_id
+      unless @agent.session_id
+        @tui.append_markdown("*No active session to fork.*")
+        @tui.request_render
+        return
+      end
 
       manager = SessionManager.new
       last_id = @agent.instance_variable_get(:@last_entry_id)
       new_id = manager.fork(@agent.session_id, cwd: Dir.pwd, from_entry_id: last_id)
       @agent.resume_session(new_id, cwd: Dir.pwd, session_manager: manager)
-      puts @pastel.dim("Forked to new session: #{new_id[0..7]}")
+      @tui.append_markdown("*Forked to new session: #{new_id[0..7]}*")
+      @tui.request_render
     end
 
     def handle_tree
-      return puts(@pastel.dim("No active session.")) unless @agent.session_id
+      unless @agent.session_id
+        @tui.append_markdown("*No active session.*")
+        @tui.request_render
+        return
+      end
 
       manager = SessionManager.new
       entries = manager.load(@agent.session_id, cwd: Dir.pwd)
-      entries.each do |e|
+      lines = entries.map do |e|
         case e.role
         when "user"
           preview = truncate(e.content.to_s, 60)
-          puts "  #{@pastel.cyan("⏺")} #{preview}"
+          "- **#{preview}**"
         when "assistant"
           tool_str = e.tool_calls.any? ? " [#{e.tool_calls.map { |t| t["name"] }.join(", ")}]" : ""
           preview = truncate(e.content.to_s, 60)
-          puts "  #{@pastel.dim("↳ #{preview}#{tool_str}")}"
+          "  - #{preview}#{tool_str}"
         when "tool_result"
           preview = truncate(e.content.to_s, 40)
-          puts "  #{@pastel.dim("  → #{e.tool_name}: #{preview}")}"
+          "    - #{e.tool_name}: #{preview}"
         end
       end
+
+      @tui.append_markdown(lines.join("\n"))
+      @tui.request_render
     end
 
     def truncate(text, max_len)
       return "" if text.nil?
       cleaned = text.gsub("\n", "\\n")
       cleaned.length > max_len ? "#{cleaned[0...max_len]}..." : cleaned
+    end
+
+    def handle_compact
+      if @agent.compactor
+        result = @agent.compact!
+        @tui.append_markdown("*#{result}*")
+      else
+        @tui.append_markdown("*Compaction not enabled.*")
+      end
+      @tui.request_render
     end
 
     def setup_readline
