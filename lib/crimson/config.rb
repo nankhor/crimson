@@ -41,6 +41,7 @@ module Crimson
       }
 
       File.write(Crimson::CONFIG_FILE, JSON.pretty_generate(data))
+      File.chmod(0o600, Crimson::CONFIG_FILE)
     end
 
     def valid?

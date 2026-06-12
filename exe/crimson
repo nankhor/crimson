@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require "date"
 require "crimson"
 
 module Crimson
@@ -42,6 +43,11 @@ module Crimson
         puts "Welcome to Crimson! Running initial setup..."
         puts
         Crimson::Setup.first_run
+      end
+
+      trust_manager = Crimson::TrustManager.new
+      unless trust_manager.trusted?(Dir.pwd)
+        return unless trust_manager.prompt_trust(Dir.pwd)
       end
 
       client = Crimson::Client.create(Crimson.config)
@@ -117,6 +123,11 @@ module Crimson
         Crimson::Setup.first_run
       end
 
+      trust_manager = Crimson::TrustManager.new
+      unless trust_manager.trusted?(Dir.pwd)
+        return unless trust_manager.prompt_trust(Dir.pwd)
+      end
+
       client = Crimson::Client.create(Crimson.config)
       registry = Crimson::ToolRegistry.new
       Crimson::Tools::ALL.each { |tool| registry.register(tool) }
@@ -142,6 +153,13 @@ module Crimson
 
       context = Crimson::ProjectContext.detect
       parts << "## Project Context\n\n#{context}" if context
+
+      context_files = Crimson::ProjectContext.load_context_files
+      formatted = Crimson::ProjectContext.format_context_files(context_files)
+      parts << formatted unless formatted.empty?
+
+      parts << "Current date: #{Date.today}"
+      parts << "Current working directory: #{Dir.pwd}"
 
       parts.join("\n\n")
     end

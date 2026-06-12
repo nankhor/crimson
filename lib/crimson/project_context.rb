@@ -1,7 +1,15 @@
 # frozen_string_literal: true
 
+require "set"
+
 module Crimson
   class ProjectContext
+    CONTEXT_FILE_NAMES = %w[
+      AGENTS.md AGENTS.MD
+      CLAUDE.md CLAUDE.MD
+      GEMINI.md GEMINI.MD
+    ].freeze
+
     def self.detect(root_dir = Dir.pwd)
       context = []
       context << "Working directory: #{root_dir}"
@@ -23,6 +31,57 @@ module Crimson
       context << "Git: #{git}" if git
 
       context.join("\n")
+    end
+
+    def self.load_context_files(root_dir = Dir.pwd)
+      files = []
+      seen_paths = Set.new
+      dir = File.expand_path(root_dir)
+
+      loop do
+        CONTEXT_FILE_NAMES.each do |name|
+          path = File.join(dir, name)
+          next unless File.exist?(path)
+          real = File.realpath(path) rescue File.expand_path(path)
+          next if seen_paths.include?(real)
+
+          seen_paths.add(real)
+          files << { path: path, content: File.read(path) }
+        end
+
+        break if git_root?(dir)
+        parent = File.dirname(dir)
+        break if parent == dir
+        dir = parent
+      end
+
+      global = File.join(Crimson::CONFIG_DIR, "AGENTS.md")
+      if File.exist?(global)
+        real = File.realpath(global) rescue File.expand_path(global)
+        unless seen_paths.include?(real)
+          files << { path: global, content: File.read(global) }
+        end
+      end
+
+      files
+    end
+
+    def self.format_context_files(files)
+      return "" if files.nil? || files.empty?
+
+      parts = ["<project_context>", "", "Project-specific instructions and guidelines:", ""]
+      files.each do |f|
+        parts << "<project_instructions path=\"#{f[:path]}\">"
+        parts << f[:content]
+        parts << "</project_instructions>"
+        parts << ""
+      end
+      parts << "</project_context>"
+      parts.join("\n")
+    end
+
+    def self.git_root?(dir)
+      Dir.exist?(File.join(dir, ".git"))
     end
 
     def self.detect_language(root_dir)
