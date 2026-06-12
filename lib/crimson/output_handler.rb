@@ -8,29 +8,33 @@ module Crimson
 
     def initialize
       @pastel = Pastel.new
-      @spinner_active = false
       @first_token = false
       @render_buffer = String.new
       @render_thread = nil
       @render_mutex = Mutex.new
-      @spinner_thread = nil
+      @status_bar = nil
     end
 
-    def attach(agent)
+    def attach(agent, status_bar = nil)
+      @status_bar = status_bar
+
       agent.on(Agent::Events::AGENT_START) do
         @first_token = false
-        start_spinner
+        @status_bar&.show_thinking
       end
 
       agent.on(Agent::Events::MESSAGE_UPDATE) do |_event, delta:, **|
-        stop_spinner unless @first_token
-        @first_token = true
+        unless @first_token
+          @status_bar&.hide_thinking
+          @status_bar&.update(status: :streaming)
+          @first_token = true
+        end
         @render_mutex.synchronize { @render_buffer << delta }
         start_render_thread unless @render_thread&.alive?
       end
 
       agent.on(Agent::Events::TOOL_EXECUTION_START) do |_event, tool_name:, args:, **|
-        stop_spinner
+        @status_bar&.show_tool(tool_name)
         path = extract_path(args)
         if path
           puts @pastel.bold.cyan("  #{tool_name}(#{path})")
@@ -40,6 +44,7 @@ module Crimson
       end
 
       agent.on(Agent::Events::TOOL_EXECUTION_END) do |_event, result:, is_error:, **|
+        @status_bar&.hide_tool
         truncated = truncate(result.to_s, 200)
         if is_error
           puts @pastel.red("  -> #{truncated}")
@@ -56,42 +61,27 @@ module Crimson
       end
 
       agent.on(Agent::Events::TURN_START) do
-        start_spinner unless @first_token
+        @status_bar&.show_thinking unless @first_token
       end
 
       agent.on(Agent::Events::AGENT_END) do
-        stop_spinner
+        @status_bar&.hide_thinking
         flush_render_buffer
+        usage = agent.token_usage
+        cost = agent.cost_tracker.total_cost
+        model = agent.config.model rescue ""
+        provider = agent.config.provider rescue ""
+        @status_bar&.update(
+          model: model,
+          provider: provider,
+          tokens: usage,
+          cost: cost,
+          status: :idle
+        )
       end
     end
 
     private
-
-    def start_spinner
-      return if @spinner_active
-      @spinner_active = true
-      @spinner_thread = Thread.new do
-        frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-        i = 0
-        while @spinner_active
-          $stdout.write("\r  \e[36m#{frames[i % frames.length]}\e[0m Thinking...")
-          $stdout.flush
-          i += 1
-          sleep 0.08
-        end
-        $stdout.write("\r\e[2K")
-        $stdout.flush
-      end
-    end
-
-    def stop_spinner
-      return unless @spinner_active
-      @spinner_active = false
-      @spinner_thread&.join(2)
-      @spinner_thread = nil
-      $stdout.write("\r\e[2K")
-      $stdout.flush
-    end
 
     def start_render_thread
       @render_thread = Thread.new do
