@@ -2,7 +2,7 @@
 
 module Crimson
   class SkillRouter
-    REPO_SKILLS_DIR = File.expand_path("../../../skills", __dir__)
+    REPO_SKILLS_DIR = File.expand_path("../../skills", __dir__)
 
     Domain = Struct.new(:name, :priority, keyword_init: true)
 
@@ -40,14 +40,14 @@ module Crimson
       matched.each do |skill|
         break if result.length >= MAX_CONDITIONAL_SKILLS + 1
         next if seen_domains.include?(skill[:domain])
-        result << skill[:name]
+        result << skill[:name].to_s
         seen_domains << skill[:domain]
       end
 
       @manifests.each do |name, manifest|
         next unless manifest[:auto_inject]
         next unless (tools_invoked & manifest[:auto_inject_tools]).any?
-        result << name unless result.include?(name)
+        result << name.to_s unless result.include?(name.to_s)
       end
 
       result
