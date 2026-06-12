@@ -11,8 +11,6 @@ module Crimson
       @pastel = Pastel.new
       @width = terminal_width
       @mutex = Mutex.new
-      @running = false
-      @render_thread = nil
       @current_output = String.new
       @tool_calls = []
       @spinner_index = 0
@@ -20,20 +18,14 @@ module Crimson
       @show_status_bar = true
       @show_tool_panels = true
       @status_line = ""
-      @last_output_length = 0
     end
 
     def start
-      return if @running
-
-      @running = true
-      @render_thread = Thread.new { render_loop }
+      # No-op - we don't need a background thread
     end
 
     def stop
-      @running = false
-      @render_thread&.join(2)
-      @render_thread = nil
+      # No-op
     end
 
     def update_output(text)
@@ -45,15 +37,12 @@ module Crimson
     end
 
     def clear_output
-      @mutex.synchronize do
-        @current_output = String.new
-        @last_output_length = 0
-      end
+      @mutex.synchronize { @current_output = String.new }
     end
 
     def add_tool_call(tool_name, args)
       @mutex.synchronize do
-        @tool_calls << { name: tool_name, args: args, active: true, result: nil, error: false }
+        @tool_calls << { name: tool_name, args: args, active: true, result: nil, error: false, rendered: false }
       end
     end
 
@@ -64,6 +53,7 @@ module Crimson
           tc[:active] = false
           tc[:result] = result
           tc[:error] = error
+          tc[:rendered] = false # Re-render to show completion
         end
       end
     end
@@ -78,31 +68,18 @@ module Crimson
 
     private
 
-    def render_loop
-      while @running
-        sleep 0.05
-        render_pending_output
-      end
-    end
-
     def render_pending_output
-      output_to_print = nil
       tool_updates = nil
       status = nil
 
       @mutex.synchronize do
-        if @current_output.length > @last_output_length
-          output_to_print = @current_output[@last_output_length..]
-          @last_output_length = @current_output.length
-        end
         tool_updates = render_tool_updates
         status = render_status_bar if @show_status_bar
       end
 
-      $stdout.write(output_to_print) if output_to_print
       $stdout.write(tool_updates) if tool_updates
       $stdout.write(status) if status
-      $stdout.flush
+      $stdout.flush if tool_updates || status
     end
 
     def render_tool_updates
@@ -125,7 +102,7 @@ module Crimson
 
     def render_status_bar
       return nil if @status_line.empty?
-      "\r#{@pastel.dim(@status_line.to_s.ljust(@width))}"
+      "\n#{@pastel.dim(@status_line.to_s)}"
     end
 
     def spinner_frame

@@ -77,8 +77,8 @@ module Crimson
     end
 
     def append_markdown(text)
-      rendered = @markdown.render(text)
-      @renderer.append_output(rendered)
+      # For now, just pass through as-is to avoid ANSI issues
+      @renderer.append_output(text)
     end
 
     def clear_output

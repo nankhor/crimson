@@ -32,19 +32,21 @@ module Crimson
         stop_spinner unless @first_token
         @first_token = true
         @render_mutex.synchronize { @render_buffer << delta }
-        @tui.append_markdown(delta)
         start_render_thread unless @render_thread&.alive?
         @tui.update_status_bar(status: "streaming")
       end
 
       agent.on(Agent::Events::TOOL_EXECUTION_START) do |_event, tool_name:, args:, **|
         stop_spinner
+        flush_render_buffer
         @tui.add_tool_call(tool_name, args)
+        @tui.render_now
         @tui.update_status_bar(status: "tool_running")
       end
 
       agent.on(Agent::Events::TOOL_EXECUTION_END) do |_event, tool_name:, result:, is_error:, **|
         @tui.complete_tool_call(tool_name, result, error: is_error)
+        @tui.render_now
       end
 
       agent.on(Agent::Events::TOOL_EXECUTION_UPDATE) do |_event, tool_name:, partial_result:, **|
@@ -59,6 +61,7 @@ module Crimson
         stop_spinner
         flush_render_buffer
         @tui.update_status_bar(status: "idle")
+        @tui.render_now
       end
     end
 
