@@ -15,22 +15,20 @@ module Crimson
     end
 
     def start
-      @tui.start
-      @tui.insert_content("**Crimson v#{VERSION}** — Type `/help` for commands, Ctrl+C to cancel")
+      @tui.run do
+        @tui.insert_content("**Crimson v#{VERSION}** — Type `/help` for commands, Ctrl+C to cancel")
 
-      loop do
-        result = input_loop
-        break if result == :quit
+        loop do
+          result = input_loop
+          break if result == :quit
 
-        if result[:command]
-          break if handle_command(result[:command]) == :quit
-        elsif result[:input]
-          run_agent(result[:input])
+          if result[:command]
+            break if handle_command(result[:command]) == :quit
+          elsif result[:input]
+            run_agent(result[:input])
+          end
         end
       end
-    ensure
-      @agent_thread&.kill if @agent_thread&.alive?
-      @tui.stop
     end
 
     private

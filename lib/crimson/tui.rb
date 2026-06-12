@@ -4,10 +4,10 @@ require "ratatui_ruby"
 
 module Crimson
   class Tui
-    SPINNER_FRAMES = %w[⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏].freeze
+    SPINNER_FRAMES = %w[⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⏏].freeze
     VP_HEIGHT = 2
 
-    attr_reader :input, :cursor_pos, :history_idx, :loading
+    attr_reader :input, :cursor_pos, :loading
 
     def initialize
       @input = String.new
@@ -27,22 +27,20 @@ module Crimson
       @tui = nil
     end
 
-    def start
-      RatatuiRuby.init_terminal(focus_events: false, bracketed_paste: false, viewport: :inline, height: VP_HEIGHT)
-      draw_frame
-    end
-
-    def stop
-      RatatuiRuby.restore_terminal if RatatuiRuby.terminal_active?
+    def run(&block)
+      RatatuiRuby.run(viewport: :inline, height: VP_HEIGHT) do |tui|
+        @tui = tui
+        draw_frame
+        block.call(self)
+      end
     end
 
     def poll_event(timeout: 0.016)
-      RatatuiRuby.poll_event(timeout: timeout)
+      @tui.poll_event(timeout: timeout)
     end
 
     def handle_key(event)
       code = event.code
-      mods = event.modifiers || []
 
       if event.ctrl?
         case code
@@ -83,8 +81,6 @@ module Crimson
         @cursor_pos = 0
       elsif code == "end"
         @cursor_pos = @input.length
-      elsif event.paste?
-        event.content.to_s.each_char { |c| insert_char(c) }
       elsif code.length == 1 && !event.ctrl? && !event.alt?
         insert_char(code)
       end
@@ -96,17 +92,14 @@ module Crimson
       return if text.nil? || text.strip.empty?
 
       @mutex.synchronize do
-        width = RatatuiRuby.viewport_size.width rescue 80
-        inner_width = [width - 4, 10].max
+        width = @tui.viewport_area.width rescue 80
+        inner_width = [width - 2, 10].max
         lines = text.split("\n")
         total_lines = lines.sum { |l| [l.length / inner_width + 1, 1].max }
         height = [total_lines, 20].min
 
-        widget = RatatuiRuby::Widgets::Paragraph.new(
-          text: text,
-          wrap: true
-        )
-        RatatuiRuby.insert_before(height, widget)
+        widget = @tui.paragraph(text: text, wrap: true)
+        @tui.insert_before(height, widget)
         draw_frame
       end
     rescue => e
@@ -134,11 +127,14 @@ module Crimson
     end
 
     def draw_frame
+      return unless @tui
       @mutex.synchronize do
-        RatatuiRuby.draw do |frame|
+        @tui.draw do |frame|
           area = frame.area
-          status_area = RatatuiRuby::Layout::Rect.new(x: 0, y: 0, width: area.width, height: 1)
-          input_area = RatatuiRuby::Layout::Rect.new(x: 0, y: 1, width: area.width, height: 1)
+          w = area.width
+
+          status_area = RatatuiRuby::Layout::Rect.new(x: 0, y: 0, width: w, height: 1)
+          input_area = RatatuiRuby::Layout::Rect.new(x: 0, y: 1, width: w, height: 1)
 
           frame.render_widget(build_status_line, status_area)
           frame.render_widget(build_input_line, input_area)
@@ -196,38 +192,37 @@ module Crimson
           @spinner_idx = (@spinner_idx + 1) % SPINNER_FRAMES.length
           @spinner_last = now
         end
-        left << RatatuiRuby::Text::Span.new(content: " #{SPINNER_FRAMES[@spinner_idx]} thinking ", style: RatatuiRuby::Style::Style.new(fg: :cyan))
+        left << @tui.span(" #{SPINNER_FRAMES[@spinner_idx]} thinking ", fg: :cyan)
       when :streaming
-        left << RatatuiRuby::Text::Span.new(content: " streaming ", style: RatatuiRuby::Style::Style.new(fg: :cyan))
+        left << @tui.span(" streaming ", fg: :cyan)
       when :tool_running
-        left << RatatuiRuby::Text::Span.new(content: " tool running ", style: RatatuiRuby::Style::Style.new(fg: :yellow))
+        left << @tui.span(" tool running ", fg: :yellow)
       else
-        left << RatatuiRuby::Text::Span.new(content: " ready ", style: RatatuiRuby::Style::Style.new(fg: :dark_gray))
+        left << @tui.span(" ready ", fg: :dark_gray)
       end
 
       if @tokens[:total] > 0
-        left << RatatuiRuby::Text::Span.new(content: " #{@tokens[:total]}t ", style: RatatuiRuby::Style::Style.new(fg: :dark_gray))
+        left << @tui.span(" #{@tokens[:total]}t ", fg: :dark_gray)
       end
 
       if @cost > 0
-        left << RatatuiRuby::Text::Span.new(content: " $#{format('%.4f', @cost)} ", style: RatatuiRuby::Style::Style.new(fg: :dark_gray))
+        left << @tui.span(" $#{format('%.4f', @cost)} ", fg: :dark_gray)
       end
 
       unless @model.empty?
-        right << RatatuiRuby::Text::Span.new(content: " #{@model} ", style: RatatuiRuby::Style::Style.new(fg: :cyan))
+        right << @tui.span(" #{@model} ", fg: :cyan)
       end
 
-      line = RatatuiRuby::Text::Line.new(spans: left + right)
-      RatatuiRuby::Widgets::Paragraph.new(text: line)
+      line = @tui.line(*left, *right)
+      @tui.paragraph(text: line)
     end
 
     def build_input_line
-      sep_style = RatatuiRuby::Style::Style.new(fg: :dark_gray)
-      prompt_style = RatatuiRuby::Style::Style.new(fg: :cyan, modifiers: [:bold])
-      input_style = RatatuiRuby::Style::Style.new(fg: :white)
+      prompt_style = @tui.style(fg: :cyan, modifiers: [:bold])
+      input_style = @tui.style(fg: :white)
 
       spans = []
-      spans << RatatuiRuby::Text::Span.new(content: "❯ ", style: prompt_style)
+      spans << @tui.span("❯ ", style: prompt_style)
 
       if @loading && @input.empty?
         now = Time.now
@@ -235,14 +230,14 @@ module Crimson
           @spinner_idx = (@spinner_idx + 1) % SPINNER_FRAMES.length
           @spinner_last = now
         end
-        spans << RatatuiRuby::Text::Span.new(content: "#{SPINNER_FRAMES[@spinner_idx]} ", style: RatatuiRuby::Style::Style.new(fg: :cyan))
-        spans << RatatuiRuby::Text::Span.new(content: @loading_text, style: RatatuiRuby::Style::Style.new(fg: :dark_gray, modifiers: [:italic]))
+        spans << @tui.span("#{SPINNER_FRAMES[@spinner_idx]} ", fg: :cyan)
+        spans << @tui.span(@loading_text, style: @tui.style(fg: :dark_gray, modifiers: [:italic]))
       else
-        spans << RatatuiRuby::Text::Span.new(content: @input, style: input_style)
+        spans << @tui.span(@input, style: input_style)
       end
 
-      line = RatatuiRuby::Text::Line.new(spans: spans)
-      RatatuiRuby::Widgets::Paragraph.new(text: line)
+      line = @tui.line(*spans)
+      @tui.paragraph(text: line)
     end
   end
 end
