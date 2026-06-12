@@ -8,76 +8,96 @@ module Crimson
 
     def initialize
       @pastel = Pastel.new
+      @spinner_active = false
       @first_token = false
       @render_buffer = String.new
       @render_thread = nil
       @render_mutex = Mutex.new
-      @status_bar = nil
+      @spinner_thread = nil
     end
 
-    def attach(agent, status_bar = nil)
-      @status_bar = status_bar
-
+    def attach(agent)
       agent.on(Agent::Events::AGENT_START) do
         @first_token = false
-        @status_bar&.show_thinking
+        start_spinner
       end
 
       agent.on(Agent::Events::MESSAGE_UPDATE) do |_event, delta:, **|
-        unless @first_token
-          @status_bar&.hide_thinking
-          @status_bar&.update(status: :streaming)
-          @first_token = true
-        end
+        stop_spinner unless @first_token
+        @first_token = true
         @render_mutex.synchronize { @render_buffer << delta }
         start_render_thread unless @render_thread&.alive?
       end
 
       agent.on(Agent::Events::TOOL_EXECUTION_START) do |_event, tool_name:, args:, **|
-        @status_bar&.show_tool(tool_name)
+        stop_spinner
         path = extract_path(args)
-        line = path ? "  #{tool_name}(#{path})" : "  #{tool_name}"
-        @status_bar&.write(@pastel.bold.cyan(line))
+        if path
+          puts @pastel.bold.cyan("  #{tool_name}(#{path})")
+        else
+          puts @pastel.bold.cyan("  #{tool_name}")
+        end
       end
 
       agent.on(Agent::Events::TOOL_EXECUTION_END) do |_event, result:, is_error:, **|
-        @status_bar&.hide_tool
         truncated = truncate(result.to_s, 200)
         if is_error
-          @status_bar&.write(@pastel.red("  -> #{truncated}"))
+          puts @pastel.red("  -> #{truncated}")
         else
-          @status_bar&.write(@pastel.dim("  -> #{truncated}"))
+          puts @pastel.dim("  -> #{truncated}")
         end
       end
 
       agent.on(Agent::Events::TOOL_EXECUTION_UPDATE) do |_event, tool_name:, partial_result:, **|
         next unless tool_name == "run_command"
         flush_render_buffer
-        @status_bar&.write(@pastel.dim(partial_result.to_s[0..120]))
+        $stdout.write("\r #{@pastel.dim(partial_result)}")
+        $stdout.flush
       end
 
       agent.on(Agent::Events::TURN_START) do
-        @status_bar&.show_thinking unless @first_token
+        start_spinner unless @first_token
       end
 
       agent.on(Agent::Events::AGENT_END) do
-        @status_bar&.hide_thinking
+        stop_spinner
         flush_render_buffer
         usage = agent.token_usage
-        cost = agent.cost_tracker.total_cost
-        model = agent.config.model rescue ""
-        provider = agent.config.provider rescue ""
-        @status_bar&.update(
-          model: model,
-          provider: provider,
-          tokens: usage,
-          cost: cost,
-          status: :idle
-        )
+        if usage[:total] > 0
+          cost = agent.cost_tracker.total_cost
+          cost_str = cost > 0 ? " ($#{format("%.4f", cost)})" : ""
+          puts @pastel.dim("\n  tokens: #{usage[:prompt]}↑ #{usage[:completion]}↓ = #{usage[:total]}#{cost_str}")
+        end
       end
     end
 
     private
+
+    def start_spinner
+      return if @spinner_active
+      @spinner_active = true
+      @spinner_thread = Thread.new do
+        frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        i = 0
+        while @spinner_active
+          $stdout.write("\r  \e[36m#{frames[i % frames.length]}\e[0m Thinking...")
+          $stdout.flush
+          i += 1
+          sleep 0.08
+        end
+        $stdout.write("\r\e[2K")
+        $stdout.flush
+      end
+    end
+
+    def stop_spinner
+      return unless @spinner_active
+      @spinner_active = false
+      @spinner_thread&.join(2)
+      @spinner_thread = nil
+      $stdout.write("\r\e[2K")
+      $stdout.flush
+    end
 
     def start_render_thread
       @render_thread = Thread.new do
@@ -95,7 +115,8 @@ module Crimson
         @render_buffer.clear
       end
       return :empty if data.nil? || data.empty?
-      @status_bar&.write_raw(data)
+      $stdout.write(data)
+      $stdout.flush
       nil
     end
 
