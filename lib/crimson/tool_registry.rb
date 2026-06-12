@@ -24,6 +24,16 @@ module Crimson
              else
                arguments.transform_keys(&:to_sym)
              end
+
+      if tool.respond_to?(:prepare_arguments)
+        begin
+          prepared = tool.prepare_arguments(args.transform_keys(&:to_s))
+          args = prepared.transform_keys(&:to_sym)
+        rescue => e
+          return "Error preparing arguments for #{tool_name}: #{e.message}"
+        end
+      end
+
       tool.call(**args)
     rescue JSON::ParserError
       "Error: Invalid JSON arguments for #{tool_name}"

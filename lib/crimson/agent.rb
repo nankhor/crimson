@@ -165,10 +165,12 @@ module Crimson
         messages = build_messages
         tools = tools_for_message(@history.last&.content.to_s)
 
-        assistant_message, usage = @client.chat(messages: messages, tools: tools) do |text_chunk, tool_event|
-          if text_chunk
-            @events.emit(Agent::Events::MESSAGE_UPDATE,
-              delta: text_chunk, content_index: 0)
+        assistant_message, usage = RetryHandler.with_retry do
+          @client.chat(messages: messages, tools: tools) do |text_chunk, tool_event|
+            if text_chunk
+              @events.emit(Agent::Events::MESSAGE_UPDATE,
+                delta: text_chunk, content_index: 0)
+            end
           end
         end
 

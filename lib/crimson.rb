@@ -19,6 +19,7 @@ require_relative "crimson/session_entry"
 require_relative "crimson/session_manager"
 require_relative "crimson/cost_tracker"
 require_relative "crimson/compactor"
+require_relative "crimson/retry_handler"
 
 module Crimson
   class Error < StandardError; end
