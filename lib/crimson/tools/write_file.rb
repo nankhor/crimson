@@ -4,9 +4,11 @@ require "fileutils"
 
 module Crimson
   module Tools
+    # Write content to a file, creating parent directories and showing a diff.
     module WriteFile
       TOOL_NAME = "write_file"
 
+      # Tool parameter definitions.
       PARAMS = {
         path: { type: "string", description: "The path to the file to write" },
         content: { type: "string", description: "The content to write" }
@@ -14,14 +16,20 @@ module Crimson
 
       MUTATION_QUEUE = FileMutationQueue.new
 
+      # @return [Hash] OpenAI-compatible tool definition
       def self.definition
         Schema.build(name: TOOL_NAME, description: "Write content to a file. Creates the file and parent directories if needed.", parameters: PARAMS, required: %w[path content])
       end
 
+      # @return [Hash] Anthropic-compatible tool definition
       def self.anthropic_definition
         Schema.build_anthropic(name: TOOL_NAME, description: "Write content to a file. Creates the file and parent directories if needed.", parameters: PARAMS, required: %w[path content])
       end
 
+      # Execute the tool.
+      # @param path [String] file path
+      # @param content [String] content to write
+      # @return [String] result message with diff or error
       def self.call(path:, content:)
         return "Error: No path provided" if path.nil? || path.strip.empty?
 

@@ -2,9 +2,12 @@
 
 module Crimson
   module Tools
+    # Edit files by replacing strings, with single and multi-edit modes.
+    # Handles BOM, CRLF/LF line endings, and produces diffs.
     module EditFile
       TOOL_NAME = "edit_file"
 
+      # Tool parameter definitions.
       PARAMS = {
         path: { type: "string", description: "The path to the file to edit" },
         old_string: { type: "string", description: "The exact string to find and replace (single edit mode)" },
@@ -27,6 +30,7 @@ module Crimson
 
       MUTATION_QUEUE = FileMutationQueue.new
 
+      # @api private
       def self.prepare_arguments(args)
         if args["edits"].is_a?(Array)
           args["edits"].each { |e| e["replace_all"] = !!e["replace_all"] if e.key?("replace_all") }
@@ -35,14 +39,23 @@ module Crimson
         args
       end
 
+      # @return [Hash] OpenAI-compatible tool definition
       def self.definition
         Schema.build(name: TOOL_NAME, description: "Replace strings in a file. Supports single edit or multiple edits in one call.", parameters: PARAMS, required: ["path"])
       end
 
+      # @return [Hash] Anthropic-compatible tool definition
       def self.anthropic_definition
         Schema.build_anthropic(name: TOOL_NAME, description: "Replace strings in a file. Supports single edit or multiple edits in one call.", parameters: PARAMS, required: ["path"])
       end
 
+      # Execute the tool.
+      # @param path [String] file path
+      # @param old_string [String, nil] text to find
+      # @param new_string [String, nil] replacement text
+      # @param replace_all [Boolean] replace all occurrences
+      # @param edits [Array<Hash>, nil] multiple edits
+      # @return [String] result message with diff or error
       def self.call(path:, old_string: nil, new_string: nil, replace_all: false, edits: nil)
         return "Error: No path provided" if path.nil? || path.strip.empty?
 
@@ -99,6 +112,7 @@ module Crimson
       class << self
         private
 
+        # @api private
         def apply_edit(content, old_string, new_string, replace_all = false)
           return { error: "Error: old_string not provided" } if old_string.nil? || old_string.empty?
           return { error: "Error: new_string not provided" } if new_string.nil?
@@ -117,6 +131,7 @@ module Crimson
           { content: new_content, count: count }
         end
 
+        # @api private
         def detect_line_ending(content)
           crlf_pos = content.index("\r\n")
           lf_pos = content.index("\n")

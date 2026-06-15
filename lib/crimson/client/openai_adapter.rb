@@ -6,12 +6,18 @@ require_relative 'base'
 
 module Crimson
   module Client
+    # OpenAI SDK client adapter supporting streaming and non-streaming chat.
     class OpenAIAdapter < Base
+      # @param config [Config]
       def initialize(config)
         super
         @client = build_client
       end
 
+      # @param messages [Array<Message::Base>]
+      # @param tools [Array<Hash>]
+      # @yield [text_chunk, tool_event] streaming callback
+      # @return [Array(Message::Assistant, Hash, nil)]
       def chat(messages:, tools: [], &stream_callback)
         params = {
           messages: messages.map(&:to_openai_h),
@@ -28,6 +34,7 @@ module Crimson
 
       private
 
+      # @api private
       def build_client
         opts = { api_key: @config.api_key }
 
@@ -37,6 +44,7 @@ module Crimson
         OpenAI::Client.new(**opts)
       end
 
+      # @api private
       def stream_chat(params, &callback)
         collected_content = String.new
         collected_tool_calls = {}
@@ -68,7 +76,6 @@ module Crimson
             collected_tool_calls[idx][:name] = event.name if event.name
             collected_tool_calls[idx][:arguments] << event.arguments_delta if event.arguments_delta
 
-            # Emit tool call as soon as we have the name
             if event.name && !collected_tool_calls[idx][:_emitted]
               collected_tool_calls[idx][:_emitted] = true
               callback.call(nil, collected_tool_calls[idx])
@@ -106,7 +113,6 @@ module Crimson
           end
         end
 
-        # Assign IDs from tool call chunks if we have them
         collected_tool_calls.each do |_idx, tc|
           next if tc[:_emitted]
           callback.call(nil, tc)
@@ -117,6 +123,7 @@ module Crimson
         [Message::Assistant.new(content: "Error communicating with #{provider_name}: #{e.message}"), nil]
       end
 
+      # @api private
       def non_stream_chat(params)
         response = @client.chat.completions.create(
           messages: params[:messages],
@@ -142,6 +149,7 @@ module Crimson
         [Message::Assistant.new(content: "Error communicating with #{provider_name}: #{e.message}"), nil]
       end
 
+      # @api private
       def parse_tool_calls(raw_tool_calls)
         raw_tool_calls.map do |tc|
           args = begin
@@ -154,6 +162,7 @@ module Crimson
         end
       end
 
+      # @api private
       def build_assistant_message(content, tool_calls)
         tc = tool_calls.map do |raw|
           args = begin
@@ -170,6 +179,7 @@ module Crimson
         )
       end
 
+      # @api private
       def provider_name
         PROVIDERS[@config.provider.to_sym][:name]
       end

@@ -6,12 +6,18 @@ require_relative 'base'
 
 module Crimson
   module Client
+    # Anthropic SDK client adapter supporting streaming, thinking mode, and tool use.
     class AnthropicAdapter < Base
+      # @param config [Config]
       def initialize(config)
         super
         @client = Anthropic::Client.new(api_key: config.api_key)
       end
 
+      # @param messages [Array<Message::Base>]
+      # @param tools [Array<Hash>]
+      # @yield [text_chunk, tool_event] streaming callback
+      # @return [Array(Message::Assistant, Hash, nil)]
       def chat(messages:, tools: [], &stream_callback)
         system_msg, chat_msgs = split_messages(messages)
 
@@ -38,6 +44,7 @@ module Crimson
 
       private
 
+      # @api private
       def split_messages(messages)
         system_parts = []
         chat_msgs = []
@@ -65,6 +72,7 @@ module Crimson
         [system_text, chat_msgs]
       end
 
+      # @api private
       def thinking_budget(level)
         case level
         when "low" then 2_048
@@ -74,6 +82,7 @@ module Crimson
         end
       end
 
+      # @api private
       def stream_chat(params, &callback)
         collected_content = String.new
         collected_tool_calls = {}
@@ -138,6 +147,7 @@ module Crimson
         [Message::Assistant.new(content: "Error communicating with Anthropic: #{e.message}"), nil]
       end
 
+      # @api private
       def non_stream_chat(params)
         response = @client.messages.create(
           model: params[:model],
@@ -175,6 +185,7 @@ module Crimson
         [Message::Assistant.new(content: "Error communicating with Anthropic: #{e.message}"), nil]
       end
 
+      # @api private
       def build_assistant_message(content, tool_calls)
         tc = tool_calls.map do |raw|
           args = begin

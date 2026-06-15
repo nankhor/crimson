@@ -4,29 +4,39 @@ require "json"
 require "securerandom"
 
 module Crimson
+  # Thread-safe abort signal for cancelling tool execution mid-flight.
   class AbortSignal
     def initialize
       @aborted = false
       @mutex = Mutex.new
     end
 
+    # Mark as aborted.
+    # @return [void]
     def abort!
       @mutex.synchronize { @aborted = true }
     end
 
+    # @return [Boolean] whether abort has been requested
     def aborted?
       @mutex.synchronize { @aborted }
     end
 
+    # Reset abort state.
+    # @return [void]
     def reset
       @mutex.synchronize { @aborted = false }
     end
   end
 
+  # Core agent loop managing conversation history, tool execution, session persistence, and event emission.
   class Agent
+    # Maximum iterations per user prompt before forcing a break.
     MAX_ITERATIONS = 50
+    # File name for saving/loading conversation history.
     HISTORY_FILE = ".crimson_history"
 
+    # Keywords that signal tool usage may be needed.
     NEEDS_TOOL_PATTERNS = %w[
       read write edit create fix bug test run exec command search find
       file files directory folder install update delete remove patch
@@ -37,13 +47,28 @@ module Crimson
       list show look open
     ].freeze
 
+    # Patterns that indicate a trivial greeting that doesn't need tools.
     TRIVIAL_PATTERNS = %w[hi hello hey thanks thank ok yes no bye goodbye sure].freeze
 
+    # @return [ToolRegistry]
+    # @return [Hash] token usage accumulator (prompt/completion/total)
+    # @return [EventEmitter]
+    # @return [SteeringManager]
     attr_reader :tool_registry, :token_usage, :events, :steering
+    # @return [String, nil] current session ID
+    # @return [String, nil] session working directory
+    # @return [CostTracker]
+    # @return [Compactor, nil]
     attr_reader :session_id, :session_cwd, :cost_tracker, :compactor
+    # @return [Config]
     attr_accessor :config
+    # @api private
     attr_writer :define_system_prompt
 
+    # @param client [Client::Base]
+    # @param tool_registry [ToolRegistry]
+    # @param system_prompt [String]
+    # @param skill_router [SkillRouter, nil]
     def initialize(client:, tool_registry:, system_prompt:, skill_router: nil)
       @client = client
       @tool_registry = tool_registry
@@ -71,18 +96,37 @@ module Crimson
       @cached_system_msg = nil
     end
 
+    # Subscribe to an agent event.
+    # @param event_type [Symbol] event type constant
+    # @yield handler block
+    # @return [void]
     def on(event_type, &handler)
       @events.on(event_type, &handler)
     end
 
+    # Register a hook that runs before each tool call.
+    # @yieldparam tool_call [Message::ToolCall]
+    # @yieldparam args [Hash]
+    # @yieldparam history [Array<Message::Base>]
+    # @return [void]
     def before_tool_call(&block)
       @before_tool_call = block
     end
 
+    # Register a hook that runs after each tool call.
+    # @yieldparam tool_call [Message::ToolCall]
+    # @yieldparam result [String]
+    # @yieldparam is_error [Boolean]
+    # @yieldparam history [Array<Message::Base>]
+    # @return [void]
     def after_tool_call(&block)
       @after_tool_call = block
     end
 
+    # Start a new session for the given working directory.
+    # @param cwd [String]
+    # @param session_manager [SessionManager]
+    # @return [void]
     def start_session(cwd:, session_manager: SessionManager.new)
       @session_manager = session_manager
       @session_id = @session_manager.create(cwd: cwd)
@@ -90,6 +134,11 @@ module Crimson
       @last_entry_id = nil
     end
 
+    # Resume an existing session by loading its history.
+    # @param session_id [String]
+    # @param cwd [String]
+    # @param session_manager [SessionManager]
+    # @return [void]
     def resume_session(session_id, cwd:, session_manager: SessionManager.new)
       @session_manager = session_manager
       entries = @session_manager.load(session_id, cwd: cwd)
@@ -99,6 +148,12 @@ module Crimson
       @last_entry_id = entries.last&.id
     end
 
+    # Enable context compaction with the given client for summarization.
+    # @param client [Client::Base]
+    # @param max_context_tokens [Integer]
+    # @param model [String, nil]
+    # @param provider [String, nil]
+    # @return [void]
     def enable_compaction!(client:, max_context_tokens: 100_000, model: nil, provider: nil)
       @compactor = Compactor.new(
         client: client,
@@ -108,6 +163,8 @@ module Crimson
       )
     end
 
+    # Force compaction of the conversation history.
+    # @return [String] status message
     def compact!
       return "Compaction not enabled" unless @compactor
       return "History too short to compact" if @history.length <= 5
@@ -116,6 +173,9 @@ module Crimson
       "Compacted history to #{@history.length} messages"
     end
 
+    # Process user input through the agent loop.
+    # @param user_input [String]
+    # @return [void]
     def prompt(user_input)
       @history << Message::User.new(user_input)
       append_to_session(@history.last)
@@ -124,23 +184,36 @@ module Crimson
       run_loop
     end
 
+    # Continue the agent loop after a manual break.
+    # @return [void]
     def continue
       run_loop
     end
 
+    # Inject a steering message into the current turn.
+    # @param message [String]
+    # @return [void]
     def steer(message)
       @steering.steer(Message::User.new(message))
     end
 
+    # Inject a follow-up message into the current turn.
+    # @param message [String]
+    # @return [void]
     def follow_up(message)
       @steering.follow_up(Message::User.new(message))
     end
 
+    # Abort the current agent execution.
+    # @return [void]
     def abort!
       @abort_signal.abort!
       @abort_controller = true
     end
 
+    # Switch to a different model, recreating the client adapter.
+    # @param model_id [String]
+    # @return [void]
     def switch_model(model_id)
       @config = Config.new(
         provider: @config.provider,
@@ -155,6 +228,8 @@ module Crimson
       @cached_system_msg = nil
     end
 
+    # Reset conversation history and token usage.
+    # @return [void]
     def reset
       @history.clear
       @token_usage = { prompt: 0, completion: 0, total: 0 }
@@ -162,14 +237,18 @@ module Crimson
       @cost_tracker.reset
     end
 
+    # @return [Array<Message::Base>] a copy of the conversation history
     def history
       @history.dup
     end
 
+    # @param new_history [Array<Message::Base>]
     def history=(new_history)
       @history = new_history.dup
     end
 
+    # Save conversation history to a JSON file.
+    # @return [String] status message
     def save_history
       data = {
         history: @history.map { |msg| serialize_message(msg) },
@@ -179,6 +258,8 @@ module Crimson
       "Conversation saved to #{HISTORY_FILE}"
     end
 
+    # Load conversation history from a JSON file.
+    # @return [String] status message
     def load_history
       return "No saved conversation found." unless File.exist?(HISTORY_FILE)
 
@@ -192,10 +273,12 @@ module Crimson
 
     private
 
+    # @api private
     def resolved_system_prompt
       @system_prompt || @system_prompt_builder&.call || ""
     end
 
+    # @api private
     def run_loop
       @abort_controller = false
       @abort_signal.reset
@@ -266,12 +349,14 @@ module Crimson
       @events.emit(Agent::Events::AGENT_END, messages: all_messages)
     end
 
+    # @api private
     def maybe_compact
       return unless @compactor && @history.length > 10 && @compactor.needs_compaction?(@history)
 
       @history = @compactor.compact(@history, system_prompt: resolved_system_prompt)
     end
 
+    # @api private
     def execute_tools_and_continue(assistant_message, all_messages)
       executor = Agent::ToolExecutor.new(
         @tool_registry, @events,
@@ -299,6 +384,7 @@ module Crimson
       inject_steering_messages(all_messages) if @steering.has_steering?
     end
 
+    # @api private
     def inject_steering_messages(all_messages)
       @steering.pop_all_steering.each do |msg|
         @history << msg
@@ -306,6 +392,7 @@ module Crimson
       end
     end
 
+    # @api private
     def inject_follow_up_messages(all_messages)
       @steering.pop_all_follow_up.each do |msg|
         @history << msg
@@ -313,6 +400,7 @@ module Crimson
       end
     end
 
+    # @api private
     def build_messages
       msgs = []
       prompt = assemble_system_prompt
@@ -321,6 +409,7 @@ module Crimson
       msgs
     end
 
+    # @api private
     def assemble_system_prompt
       parts = []
       base = resolved_system_prompt
@@ -335,6 +424,7 @@ module Crimson
       parts.join("\n\n")
     end
 
+    # @api private
     def last_invoked_tool_names
       @history.reverse_each do |msg|
         next unless msg.is_a?(Message::Assistant) && msg.tool_calls&.any?
@@ -343,6 +433,7 @@ module Crimson
       []
     end
 
+    # @api private
     def provider_tool_definitions
       sdk = PROVIDERS[Crimson.config.provider.to_sym][:sdk]
       case sdk
@@ -352,6 +443,7 @@ module Crimson
       end
     end
 
+    # @api private
     def track_usage(usage)
       return unless usage
       @token_usage[:prompt] += (usage[:prompt_tokens] || usage["prompt_tokens"] || 0)
@@ -360,15 +452,18 @@ module Crimson
       @cost_tracker.track(Crimson.config.model, usage)
     end
 
+    # @api private
     def tools_for_message(user_input)
       return cached_tool_definitions if needs_tools?(user_input)
       []
     end
 
+    # @api private
     def cached_tool_definitions
       @cached_tool_defs ||= provider_tool_definitions
     end
 
+    # @api private
     def needs_tools?(input)
       return true if @history.any? { |m| m.is_a?(Message::ToolResult) }
 
@@ -378,6 +473,7 @@ module Crimson
       NEEDS_TOOL_PATTERNS.any? { |keyword| lower.include?(keyword) }
     end
 
+    # @api private
     def append_to_session(message)
       return unless @session_manager && @session_id
 
@@ -414,6 +510,7 @@ module Crimson
       flush_session_buffer if @session_buffer.length >= 3
     end
 
+    # @api private
     def find_tool_call_args(tool_name, tool_call_id)
       @history.reverse_each do |msg|
         next unless msg.is_a?(Message::Assistant) && msg.tool_calls
@@ -423,6 +520,7 @@ module Crimson
       nil
     end
 
+    # @api private
     def flush_session_buffer
       return if @session_buffer.empty?
       return unless @session_manager && @session_id
@@ -432,6 +530,7 @@ module Crimson
       entries.each { |e| @session_manager.append(@session_id, cwd: @session_cwd, entry: e) }
     end
 
+    # @api private
     def serialize_message(msg)
       case msg
       when Message::User
@@ -447,6 +546,7 @@ module Crimson
       end
     end
 
+    # @api private
     def deserialize_message(data)
       case data[:type]
       when "user"

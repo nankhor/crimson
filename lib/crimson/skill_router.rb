@@ -1,11 +1,16 @@
 # frozen_string_literal: true
 
 module Crimson
+  # Routes user intents to skills based on trigger keyword matching.
+  # Supports auto-inject skills triggered by tool usage and domain-based priority sorting.
   class SkillRouter
+    # Directory where bundled skills are stored in the repository.
     REPO_SKILLS_DIR = File.expand_path("../../skills", __dir__)
 
+    # Skill domain descriptor.
     Domain = Struct.new(:name, :priority, keyword_init: true)
 
+    # Built-in skill domains with their priority levels.
     DOMAINS = {
       engineering: Domain.new(name: "engineering", priority: 10),
       analysis:    Domain.new(name: "analysis",    priority: 5),
@@ -15,6 +20,7 @@ module Crimson
 
     MAX_CONDITIONAL_SKILLS = 2
 
+    # @param skills_dirs [Array<String>, nil] directories to search for skill markdown files
     def initialize(skills_dirs: nil)
       @skills_dirs = skills_dirs || [REPO_SKILLS_DIR]
       @manifests = {}
@@ -22,6 +28,10 @@ module Crimson
       load_manifests
     end
 
+    # Resolve which skills are relevant to a user message.
+    # @param user_message [String] the user's input
+    # @param tools_invoked [Array<String>] tools used in the current turn
+    # @return [Array<String>] list of active skill names (always includes "coding")
     def resolve(user_message, tools_invoked: [])
       lower = user_message.to_s.downcase.strip
       matched = []
@@ -53,6 +63,9 @@ module Crimson
       result
     end
 
+    # Load a skill's content (with front matter stripped).
+    # @param name [String] skill name
+    # @return [String, nil] skill content or nil if not found
     def load_skill(name)
       path = @skill_paths[name.to_sym]
       return nil unless path && File.exist?(path)
@@ -60,12 +73,14 @@ module Crimson
       strip_front_matter(content)
     end
 
+    # @return [Array<String>] all discovered skill names
     def skill_names
       @manifests.keys.map(&:to_s)
     end
 
     private
 
+    # @api private
     def load_manifests
       @skills_dirs.each do |dir|
         next unless Dir.exist?(dir)
@@ -84,6 +99,7 @@ module Crimson
       nil
     end
 
+    # @api private
     def parse_front_matter(content, name)
       return default_manifest(name) unless content.start_with?("---")
 
@@ -116,6 +132,7 @@ module Crimson
       manifest
     end
 
+    # @api private
     def default_manifest(name)
       {
         domain: :base,
@@ -127,6 +144,7 @@ module Crimson
       }
     end
 
+    # @api private
     def triggers_match?(message, triggers)
       triggers&.any? do |t|
         if t.include?(" ")
@@ -137,6 +155,7 @@ module Crimson
       end
     end
 
+    # @api private
     def strip_front_matter(content)
       return content unless content.start_with?("---")
       parts = content.split("---", 3)

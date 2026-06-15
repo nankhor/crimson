@@ -1,5 +1,10 @@
 # Crimson
 
+[![CI](https://github.com/cmoiadib/crimson/actions/workflows/ci.yml/badge.svg)](https://github.com/cmoiadib/crimson/actions/workflows/ci.yml)
+[![Gem Version](https://img.shields.io/gem/v/crimson)](https://rubygems.org/gems/crimson)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
+[![Ruby](https://img.shields.io/badge/ruby-3.2%2B-red)](https://www.ruby-lang.org)
+
 An open-source Ruby-based minimal coding agent made to get things done.
 
 ## Features

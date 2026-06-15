@@ -4,9 +4,11 @@ require "open3"
 
 module Crimson
   module Tools
+    # Search files for regex patterns using ripgrep (preferred) or grep fallback.
     module SearchFiles
       TOOL_NAME = "search_files"
 
+      # Tool parameter definitions.
       PARAMS = {
         pattern: { type: "string", description: "The regex pattern to search for" },
         path: { type: "string", description: "The directory to search in. Defaults to current directory." },
@@ -14,21 +16,31 @@ module Crimson
         context_lines: { type: "integer", description: "Number of context lines to show around each match (default: 0)" }
       }.freeze
 
+      # Whether ripgrep is available on this system.
       RG_AVAILABLE = system("which rg > /dev/null 2>&1")
 
+      # @api private
       def self.prepare_arguments(args)
         args["context_lines"] = args["context_lines"].to_i if args["context_lines"]
         args
       end
 
+      # @return [Hash] OpenAI-compatible tool definition
       def self.definition
         Schema.build(name: TOOL_NAME, description: "Search for a regex pattern in files. Returns matching file paths, line numbers, and context.", parameters: PARAMS, required: ["pattern"])
       end
 
+      # @return [Hash] Anthropic-compatible tool definition
       def self.anthropic_definition
         Schema.build_anthropic(name: TOOL_NAME, description: "Search for a regex pattern in files. Returns matching file paths, line numbers, and context.", parameters: PARAMS, required: ["pattern"])
       end
 
+      # Execute the tool.
+      # @param pattern [String] regex pattern
+      # @param path [String] directory to search (default ".")
+      # @param file_pattern [String, nil] glob to filter files
+      # @param context_lines [Integer] lines of context around matches
+      # @return [String] search results or error
       def self.call(pattern:, path: ".", file_pattern: nil, context_lines: 0)
         return "Error: No pattern provided" if pattern.nil? || pattern.strip.empty?
 
@@ -47,6 +59,7 @@ module Crimson
       class << self
         private
 
+        # @api private
         def search_with_rg(pattern, path, file_pattern, context)
           cmd = ["rg", "--no-heading", "--line-number", "--color=never"]
           cmd << "-C" << context.to_s if context > 0
@@ -63,6 +76,7 @@ module Crimson
           truncate_output(stdout)
         end
 
+        # @api private
         def search_with_grep(pattern, path, file_pattern, context)
           cmd = ["grep", "-rn", "--color=never", "-E"]
           cmd << "-C" << context.to_s if context > 0
@@ -78,6 +92,7 @@ module Crimson
           truncate_output(stdout)
         end
 
+        # @api private
         def truncate_output(output)
           lines = output.lines
           if lines.length > 200

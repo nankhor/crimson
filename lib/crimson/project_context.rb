@@ -3,13 +3,19 @@
 require "set"
 
 module Crimson
+  # Auto-detects project language, framework, package manager, and testing tools.
+  # Also loads project context files (AGENTS.md, CLAUDE.md, etc.) from directory tree.
   class ProjectContext
+    # File names considered as project instruction files.
     CONTEXT_FILE_NAMES = %w[
       AGENTS.md AGENTS.MD
       CLAUDE.md CLAUDE.MD
       GEMINI.md GEMINI.MD
     ].freeze
 
+    # Detect project context (language, framework, package manager, git status).
+    # @param root_dir [String] project root directory
+    # @return [String] formatted context string
     def self.detect(root_dir = Dir.pwd)
       context = []
       context << "Working directory: #{root_dir}"
@@ -33,6 +39,9 @@ module Crimson
       context.join("\n")
     end
 
+    # Load project context files (AGENTS.md, CLAUDE.md, GEMINI.md) walking up to git root.
+    # @param root_dir [String] starting directory
+    # @return [Array<Hash>] array of { path:, content: } hashes
     def self.load_context_files(root_dir = Dir.pwd)
       files = []
       seen_paths = Set.new
@@ -66,6 +75,9 @@ module Crimson
       files
     end
 
+    # Format context files into an XML-like string for the system prompt.
+    # @param files [Array<Hash>, nil] array of { path:, content: }
+    # @return [String]
     def self.format_context_files(files)
       return "" if files.nil? || files.empty?
 
@@ -80,10 +92,12 @@ module Crimson
       parts.join("\n")
     end
 
+    # @api private
     def self.git_root?(dir)
       Dir.exist?(File.join(dir, ".git"))
     end
 
+    # @api private
     def self.detect_language(root_dir)
       indicators = {
         "Ruby"     => ["Gemfile", "*.rb", "*.gemspec"],
@@ -105,6 +119,7 @@ module Crimson
       nil
     end
 
+    # @api private
     def self.detect_framework(root_dir)
       return "Rails" if File.exist?(File.join(root_dir, "bin", "rails"))
       return "Sinatra" if gem_in_gemfile?(root_dir, "sinatra")
@@ -118,6 +133,7 @@ module Crimson
       nil
     end
 
+    # @api private
     def self.detect_package_manager(root_dir)
       return "bundler" if File.exist?(File.join(root_dir, "Gemfile"))
       return "npm" if File.exist?(File.join(root_dir, "package-lock.json"))
@@ -129,6 +145,7 @@ module Crimson
       nil
     end
 
+    # @api private
     def self.detect_testing(root_dir)
       return "RSpec" if File.exist?(File.join(root_dir, ".rspec")) || gem_in_gemfile?(root_dir, "rspec")
       return "Minitest" if Dir.glob(File.join(root_dir, "test/**/*_test.rb")).any?
@@ -138,6 +155,7 @@ module Crimson
       nil
     end
 
+    # @api private
     def self.detect_git(root_dir)
       return nil unless Dir.exist?(File.join(root_dir, ".git"))
 
@@ -149,12 +167,14 @@ module Crimson
       status
     end
 
+    # @api private
     def self.gem_in_gemfile?(root_dir, gem_name)
       gemfile = File.join(root_dir, "Gemfile")
       return false unless File.exist?(gemfile)
       File.read(gemfile).include?(gem_name)
     end
 
+    # @api private
     def self.file_has_dep?(root_dir, filename, dep_name)
       path = File.join(root_dir, filename)
       return false unless File.exist?(path)

@@ -4,10 +4,15 @@ require "set"
 require "pastel"
 
 module Crimson
+  # Streaming output handler with spinner, tool call logging, and usage statistics.
+  # Subscribes to agent events to provide real-time terminal feedback.
   class OutputHandler
+    # Interval in seconds between render flushes.
     RENDER_INTERVAL = 0.05
+    # Spinner animation frame characters.
     SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"].freeze
 
+    # Visual styles for known tools (prefix color and label).
     TOOL_STYLES = {
       "read_file"      => { prefix: "→Read",   color: :blue   },
       "write_file"     => { prefix: "→Write",  color: :green  },
@@ -18,6 +23,7 @@ module Crimson
       "list_directory" => { prefix: "→List",   color: :cyan   }
     }.freeze
 
+    # Extractors to pull display-relevant arguments from tool call argument hashes.
     TOOL_ARG_EXTRACTORS = {
       "read_file"      => ->(a) { a["path"] || a[:path] },
       "write_file"     => ->(a) { a["path"] || a[:path] },
@@ -41,6 +47,9 @@ module Crimson
       @run_start = nil
     end
 
+    # Subscribe to events on the given agent for output rendering.
+    # @param agent [Agent]
+    # @return [void]
     def attach(agent)
       agent.on(Agent::Events::AGENT_START) do
         @first_token = false
@@ -119,6 +128,7 @@ module Crimson
 
     private
 
+    # @api private
     def log_tool_call(tool_name, args)
       style = TOOL_STYLES[tool_name]
       if style
@@ -130,6 +140,7 @@ module Crimson
       end
     end
 
+    # @api private
     def format_elapsed(seconds)
       if seconds < 60
         format("%.1fs", seconds)
@@ -140,6 +151,7 @@ module Crimson
       end
     end
 
+    # @api private
     def start_spinner
       return if @spinner_active
       @spinner_active = true
@@ -156,6 +168,7 @@ module Crimson
       end
     end
 
+    # @api private
     def stop_spinner
       return unless @spinner_active
       @spinner_active = false
@@ -165,6 +178,7 @@ module Crimson
       $stdout.flush
     end
 
+    # @api private
     def start_render_thread
       @render_thread = Thread.new do
         loop do
@@ -174,6 +188,7 @@ module Crimson
       end
     end
 
+    # @api private
     def flush_render_buffer(final: false)
       data = nil
       @render_mutex.synchronize do
@@ -213,6 +228,7 @@ module Crimson
       nil
     end
 
+    # @api private
     def extract_tool_arg(tool_name, args)
       return nil unless args.is_a?(Hash)
       extractor = TOOL_ARG_EXTRACTORS[tool_name]
@@ -221,10 +237,12 @@ module Crimson
       nil
     end
 
+    # @api private
     def header?(line)
       line.match?(Regexp.new('^\#{1,6}\s'))
     end
 
+    # @api private
     def truncate(text, max_len)
       return "" if text.nil?
       cleaned = text.gsub("\n", "\\n")

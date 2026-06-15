@@ -3,15 +3,21 @@
 require "pastel"
 
 module Crimson
+  # ANSI-markdown formatter for rendering Markdown-formatted text with terminal colors.
   module Formatter
     @pastel = Pastel.new(enabled: true)
     @in_code_block = false
 
     class << self
+      # Reset the code block tracking state.
+      # @return [void]
       def reset
         @in_code_block = false
       end
 
+      # Format a single line of Markdown text with ANSI styling.
+      # @param line [String, nil]
+      # @return [String] styled output
       def format_line(line)
         return "" if line.nil?
 
@@ -31,12 +37,15 @@ module Crimson
         end
       end
 
+      # @return [Boolean] whether currently inside a code block
       def in_code_block?
         @in_code_block
       end
 
       private
 
+      # Apply inline Markdown styling (headers, bold, code, links, etc.).
+      # @api private
       def style_inline(line)
         result = line.dup
 

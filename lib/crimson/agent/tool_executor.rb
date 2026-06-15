@@ -4,7 +4,13 @@ require "thread"
 
 module Crimson
   class Agent
+    # Executes tool calls with parallel/sequential modes, hooks, and abort support.
     class ToolExecutor
+      # @param tool_registry [ToolRegistry]
+      # @param events [EventEmitter]
+      # @param before_hook [Proc, nil]
+      # @param after_hook [Proc, nil]
+      # @param abort_signal [AbortSignal, nil]
       def initialize(tool_registry, events, before_hook: nil, after_hook: nil, abort_signal: nil)
         @tool_registry = tool_registry
         @events = events
@@ -13,6 +19,11 @@ module Crimson
         @abort_signal = abort_signal
       end
 
+      # Execute a list of tool calls.
+      # Tools marked as sequential run one at a time; others run in parallel.
+      # @param tool_calls [Array<Message::ToolCall>]
+      # @param history [Array<Message::Base>]
+      # @return [Array<Hash>] results with keys :tool_call, :result, :is_error
       def execute(tool_calls, history)
         sequential = tool_calls.any? { |tc| tool_sequential?(tc) }
 
@@ -25,6 +36,7 @@ module Crimson
 
       private
 
+      # @api private
       def execute_parallel(tool_calls, history)
         results = {}
         mutex = Mutex.new
@@ -41,10 +53,12 @@ module Crimson
         tool_calls.map { |tc| results[tc.id] }
       end
 
+      # @api private
       def execute_sequential(tool_calls, history)
         tool_calls.map { |tc| execute_single(tc, history) }
       end
 
+      # @api private
       def execute_single(tc, history)
         args_display = tc.arguments.is_a?(Hash) ? tc.arguments : tc.arguments.to_s
         @events.emit(Events::TOOL_EXECUTION_START,
@@ -89,6 +103,7 @@ module Crimson
         { tool_call: tc, result: result, is_error: is_error }
       end
 
+      # @api private
       def tool_sequential?(tc)
         tool = @tool_registry.lookup(tc.name)
         return false unless tool

@@ -14,6 +14,7 @@ require_relative "glob"
 
 module Crimson
   module Tools
+    # All built-in tool modules available for registration.
     ALL = [ReadFile, WriteFile, EditFile, ListDirectory, RunCommand, SearchFiles, Glob].freeze
   end
 end

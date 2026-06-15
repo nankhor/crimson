@@ -2,22 +2,30 @@
 
 module Crimson
   module Tools
+    # Find files matching a glob pattern with configurable search root.
     module Glob
       TOOL_NAME = "glob"
 
+      # Tool parameter definitions.
       PARAMS = {
         pattern: { type: "string", description: "The glob pattern to match files against" },
         path: { type: "string", description: "The directory to search in. Defaults to current directory." }
       }.freeze
 
+      # @return [Hash] OpenAI-compatible tool definition
       def self.definition
         Schema.build(name: TOOL_NAME, description: "Find files matching a glob pattern (e.g. '**/*.rb', 'src/**/*.ts'). Returns sorted file paths.", parameters: PARAMS, required: ["pattern"])
       end
 
+      # @return [Hash] Anthropic-compatible tool definition
       def self.anthropic_definition
         Schema.build_anthropic(name: TOOL_NAME, description: "Find files matching a glob pattern (e.g. '**/*.rb', 'src/**/*.ts'). Returns sorted file paths.", parameters: PARAMS, required: ["pattern"])
       end
 
+      # Execute the tool.
+      # @param pattern [String] glob pattern
+      # @param path [String] search root (default ".")
+      # @return [String] sorted file paths or error
       def self.call(pattern:, path: ".")
         return "Error: No pattern provided" if pattern.nil? || pattern.strip.empty?
 

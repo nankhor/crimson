@@ -9,12 +9,17 @@ require 'fileutils'
 require_relative 'providers'
 
 module Crimson
+  # First-run setup wizard that guides users through provider selection and configuration.
   class Setup
+    # Run the full first-time setup including copying default skills.
+    # @return [void]
     def self.first_run
       copy_default_skills
       run
     end
 
+    # Run the interactive configuration wizard.
+    # @return [void]
     def self.run
       prompt = TTY::Prompt.new
       puts "Crimson Setup"
@@ -40,24 +45,29 @@ module Crimson
 
     private
 
+    # @api private
     def self.select_provider(prompt)
       prompt.select("Select a provider:",
         PROVIDERS.map { |key, data| { name: data[:name], value: key } }
       )
     end
 
+    # @api private
     def self.ask_for_api_key(prompt, provider)
       prompt.mask("Enter your #{PROVIDERS[provider][:name]} API key:")
     end
 
+    # @api private
     def self.ask_for_base_url(prompt)
       prompt.ask("Enter the base URL for the provider:")
     end
 
+    # @api private
     def self.select_model(prompt, models)
       prompt.select("Select a model:", models)
     end
 
+    # @api private
     def self.fetch_models(provider, api_key, base_url = nil)
       spinner = TTY::Spinner.new("[:spinner] Fetching models...", format: :dots)
       spinner.auto_spin
@@ -94,6 +104,7 @@ module Crimson
       end
     end
 
+    # @api private
     def self.save_config(provider, api_key, base_url, model)
       config = Crimson::Config.new(
         provider: provider.to_s,
@@ -105,6 +116,7 @@ module Crimson
       config.save
     end
 
+    # @api private
     def self.copy_default_skills
       FileUtils.mkdir_p(Crimson::SKILLS_DIR)
 

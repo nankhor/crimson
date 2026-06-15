@@ -12,6 +12,13 @@ Gem::Specification.new do |spec|
   spec.homepage      = "https://github.com/cmoiadib/crimson"
   spec.license       = "MIT"
 
+  spec.metadata = {
+    "source_code_uri" => "https://github.com/cmoiadib/crimson",
+    "changelog_uri" => "https://github.com/cmoiadib/crimson/blob/main/CHANGELOG.md",
+    "bug_tracker_uri" => "https://github.com/cmoiadib/crimson/issues",
+    "rubygems_mfa_required" => "true"
+  }
+
   spec.required_ruby_version = ">= 3.2.0"
 
   spec.files = Dir[
@@ -34,6 +41,9 @@ Gem::Specification.new do |spec|
   spec.add_dependency "tiktoken_ruby", "~> 0.0.5"
 
   spec.add_development_dependency "rspec", "~> 3.13"
+  spec.add_development_dependency "simplecov", "~> 0.22"
+  spec.add_development_dependency "rubocop", "~> 1.75"
+  spec.add_development_dependency "rubocop-rspec", "~> 3.5"
   spec.add_development_dependency "pry", "~> 0.16"
   spec.add_development_dependency "pry-byebug", "~> 3.12"
 end

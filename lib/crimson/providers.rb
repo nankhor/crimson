@@ -1,6 +1,10 @@
 # frozen_string_literal: true
 
 module Crimson
+  # @!parse
+  #   PROVIDERS = Hash[Symbol, Hash]
+  # Provider definitions including base URLs, SDK type, and auth header builders.
+  # Each entry maps a provider symbol to its configuration hash.
   PROVIDERS = {
     openai: {
       name: "OpenAI",
@@ -40,5 +44,6 @@ module Crimson
     }
   }
 
+  # Endpoint path suffix appended to provider base URLs to fetch available models.
   MODELS_ENDPOINT = "/models"
 end

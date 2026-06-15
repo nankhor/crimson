@@ -4,7 +4,9 @@ require "reline"
 require "pastel"
 
 module Crimson
+  # Interactive REPL with readline support, slash commands, and session management.
   class Repl
+    # @param agent [Agent]
     def initialize(agent)
       @agent = agent
       @pastel = Pastel.new
@@ -13,6 +15,8 @@ module Crimson
       setup_readline
     end
 
+    # Start the REPL event loop.
+    # @return [void]
     def start
       puts @pastel.bold("Crimson v#{VERSION}")
       puts @pastel.dim("Type /help for commands, /exit to quit")
@@ -40,6 +44,7 @@ module Crimson
 
     private
 
+    # @api private
     def handle_command(input)
       case input
       when "/help"
@@ -109,6 +114,7 @@ module Crimson
       end
     end
 
+    # @api private
     def handle_sessions
       return puts(@pastel.dim("No active session.")) unless @agent.session_id
 
@@ -127,6 +133,7 @@ module Crimson
       end
     end
 
+    # @api private
     def handle_model_switch
       config = @agent.config || Crimson.config
       puts @pastel.dim("Current: #{PROVIDERS[config.provider.to_sym][:name]} / #{config.model}")
@@ -149,6 +156,7 @@ module Crimson
       end
     end
 
+    # @api private
     def fetch_available_models(config)
       require "net/http"
       require "uri"
@@ -172,6 +180,7 @@ module Crimson
       []
     end
 
+    # @api private
     def handle_thinking
       config = @agent.config || Crimson.config
       current = config.thinking_level || "off"
@@ -190,11 +199,13 @@ module Crimson
       end
     end
 
+    # @api private
     def handle_name
       return puts(@pastel.yellow("No active session.")) unless @agent.session_id
       puts @pastel.dim("Usage: /name <session name>")
     end
 
+    # @api private
     def handle_name_set(name)
       return puts(@pastel.yellow("No active session.")) unless @agent.session_id
       return puts(@pastel.yellow("Usage: /name <session name>")) if name.empty?
@@ -204,6 +215,7 @@ module Crimson
       puts @pastel.dim("Session name set to: #{name}")
     end
 
+    # @api private
     def handle_session_info
       return puts(@pastel.dim("No active session.")) unless @agent.session_id
 
@@ -224,6 +236,7 @@ module Crimson
       puts "  Cost:     $#{format('%.4f', cost)}" if cost > 0
     end
 
+    # @api private
     def handle_fork
       return puts(@pastel.yellow("No active session to fork.")) unless @agent.session_id
 
@@ -234,6 +247,7 @@ module Crimson
       puts @pastel.dim("Forked to new session: #{new_id[0..7]}")
     end
 
+    # @api private
     def handle_tree
       return puts(@pastel.dim("No active session.")) unless @agent.session_id
 
@@ -255,16 +269,19 @@ module Crimson
       end
     end
 
+    # @api private
     def truncate(text, max_len)
       return "" if text.nil?
       cleaned = text.gsub("\n", "\\n")
       cleaned.length > max_len ? "#{cleaned[0...max_len]}..." : cleaned
     end
 
+    # @api private
     def setup_readline
       Reline.completion_proc = method(:file_path_completion)
     end
 
+    # @api private
     def file_path_completion(input)
       prefix = input.strip
       return [] unless prefix.start_with?("@", "./", "~/", "/")

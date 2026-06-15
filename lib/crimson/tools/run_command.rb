@@ -5,10 +5,13 @@ require "timeout"
 
 module Crimson
   module Tools
+    # Execute shell commands with timeout, streaming output, and abort support.
     module RunCommand
       TOOL_NAME = "run_command"
+      # This tool must run sequentially (not parallel).
       EXECUTION_MODE = :sequential
 
+      # Tool parameter definitions.
       PARAMS = {
         command: { type: "string", description: "The shell command to execute" },
         timeout: { type: "integer", description: "Timeout in seconds (default: 30)" }
@@ -18,27 +21,41 @@ module Crimson
       @callback_mutex = Mutex.new
 
       class << self
+        # Register a callback for streaming execution updates.
+        # @param callback [Proc, nil]
         def on_update=(callback)
           @callback_mutex.synchronize { @update_callback = callback }
         end
 
+        # @return [Proc, nil] current update callback
         def on_update
           @callback_mutex.synchronize { @update_callback }
         end
       end
 
+      # @return [Hash] OpenAI-compatible tool definition
       def self.definition
         Schema.build(name: TOOL_NAME, description: "Execute a shell command and return stdout and stderr.", parameters: PARAMS, required: ["command"])
       end
 
+      # @return [Hash] Anthropic-compatible tool definition
       def self.anthropic_definition
         Schema.build_anthropic(name: TOOL_NAME, description: "Execute a shell command and return stdout and stderr.", parameters: PARAMS, required: ["command"])
       end
 
+      # Execute a command without abort signal support.
+      # @param command [String] shell command
+      # @param timeout [Integer] timeout in seconds
+      # @return [String] command output or error
       def self.call(command:, timeout: 30)
         call_with_signal(command: command, timeout: timeout, signal: nil)
       end
 
+      # Execute a command with abort signal support.
+      # @param command [String] shell command
+      # @param timeout [Integer] timeout in seconds
+      # @param signal [AbortSignal, nil]
+      # @return [String] command output or error
       def self.call_with_signal(command:, timeout: 30, signal: nil)
         return "Error: No command provided" if command.nil? || command.strip.empty?
 
@@ -112,6 +129,7 @@ module Crimson
         end
       end
 
+      # @api private
       def self.strip_ansi_codes(text)
         text.gsub(/\e\[[0-9;]*[a-zA-Z]/, '')
       end

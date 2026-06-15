@@ -1,20 +1,34 @@
 # frozen_string_literal: true
 
 module Crimson
+  # Compacts conversation history by summarizing older messages when context limits are approached.
   class Compactor
+    # Default max context tokens before compaction is triggered.
     DEFAULT_MAX_CONTEXT_TOKENS = 100_000
+    # Number of most recent messages to preserve verbatim during compaction.
     KEEP_RECENT_MESSAGES = 4
 
+    # @param client [Client::Base] the API client used for summarization
+    # @param max_context_tokens [Integer] threshold for triggering compaction
+    # @param model [String, nil] model name for token counting
+    # @param provider [String, nil] provider name
     def initialize(client:, max_context_tokens: DEFAULT_MAX_CONTEXT_TOKENS, model: nil, provider: nil)
       @client = client
       @max_context_tokens = max_context_tokens
       @token_counter = TokenCounter.new(model: model, provider: provider)
     end
 
+    # Check whether the history exceeds 80% of the max context token budget.
+    # @param history [Array<Message::Base>]
+    # @return [Boolean]
     def needs_compaction?(history)
       estimated_tokens(history) > @max_context_tokens * 0.8
     end
 
+    # Compact history by summarizing older entries and keeping recent ones verbatim.
+    # @param history [Array<Message::Base>]
+    # @param system_prompt [String]
+    # @return [Array<Message::Base>] compacted history
     def compact(history, system_prompt:)
       return history if history.length <= KEEP_RECENT_MESSAGES + 1
 
@@ -33,6 +47,7 @@ module Crimson
 
     private
 
+    # @api private
     def extract_file_operations(history)
       ops = { read: [], modified: [] }
       pending_tool_calls = {}
@@ -61,6 +76,7 @@ module Crimson
       ops
     end
 
+    # @api private
     def summarize(messages, system_prompt, file_ops = { read: [], modified: [] })
       files_section = ""
       if file_ops[:read].any? || file_ops[:modified].any?
@@ -83,6 +99,7 @@ module Crimson
       response&.content || "Summary unavailable"
     end
 
+    # @api private
     def format_messages(messages)
       messages.map do |msg|
         case msg
@@ -99,10 +116,12 @@ module Crimson
       end.compact.join("\n")
     end
 
+    # @api private
     def estimated_tokens(history)
       @token_counter.count_messages(history)
     end
 
+    # @api private
     def truncate(text, max)
       text.length > max ? "#{text[0...max]}..." : text
     end

@@ -4,6 +4,10 @@ require_relative 'base'
 
 module Crimson
 module Client
+  # Factory method to create the correct client adapter based on provider configuration.
+  # @param config [Config]
+  # @return [Client::Base]
+  # @raise [Error] if the provider SDK is unsupported
   def self.create(config)
     provider = config.provider.to_sym
     sdk = PROVIDERS[provider][:sdk]

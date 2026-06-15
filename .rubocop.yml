@@ -1,0 +1,23 @@
+require:
+  - rubocop-rspec
+
+AllCops:
+  NewCops: enable
+  TargetRubyVersion: 3.2
+  Exclude:
+    - vendor/**/*
+    - pkg/**/*
+
+Style/StringLiterals:
+  EnforcedStyle: double_quotes
+
+Style/FrozenStringLiteralComment:
+  EnforcedStyle: always
+
+Metrics/BlockLength:
+  Exclude:
+    - spec/**/*
+    - crimson.gemspec
+
+Layout/LineLength:
+  Max: 120

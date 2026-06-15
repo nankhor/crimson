@@ -28,20 +28,27 @@ require_relative "crimson/token_counter"
 require_relative "crimson/trust_manager"
 
 module Crimson
+  # Base error class for Crimson-specific errors.
   class Error < StandardError; end
 
+  # Directory for Crimson configuration files.
   CONFIG_DIR = File.join(Dir.home, ".crimson")
+  # Path to the JSON configuration file.
   CONFIG_FILE = File.join(CONFIG_DIR, "config.json")
+  # Directory for user skill markdown files.
   SKILLS_DIR = File.join(CONFIG_DIR, "skills")
 
+  # @return [Config] the global configuration (loaded once, cached)
   def self.config
     @config ||= Crimson::Config.load
   end
 
+  # @return [String] path to the config directory
   def self.config_dir
     CONFIG_DIR
   end
 
+  # @return [Boolean] whether the config file exists
   def self.configured?
     File.exist?(CONFIG_FILE)
   end

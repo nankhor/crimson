@@ -4,12 +4,26 @@ require "securerandom"
 require "json"
 
 module Crimson
+  # Data model for a single entry in a session log.
+  # Can represent user messages, assistant responses, and tool results.
   class SessionEntry
+    # @return [String] unique entry ID
+    # @return [String, nil] parent entry ID for threading
+    # @return [String] role (user/assistant/tool_result/system)
+    # @return [String, nil] message content
+    # @return [Array<Hash>] tool call data
+    # @return [String, nil] tool call ID for results
+    # @return [String, nil] tool name for results
+    # @return [Hash] token usage metadata
+    # @return [String] ISO 8601 timestamp
+    # @return [Array<String>] files read by this entry
+    # @return [Array<String>] files modified by this entry
     attr_accessor :id, :parent_id, :role, :content,
                   :tool_calls, :tool_call_id, :tool_name,
                   :token_usage, :timestamp,
                   :read_files, :modified_files
 
+    # @param attrs [Hash] entry attributes
     def initialize(attrs = {})
       @id = attrs[:id] || SecureRandom.uuid
       @parent_id = attrs[:parent_id]
@@ -24,6 +38,8 @@ module Crimson
       @modified_files = attrs[:modified_files] || []
     end
 
+    # Convert to a hash suitable for JSON serialization.
+    # @return [Hash]
     def to_h
       h = {
         id: @id,
@@ -41,10 +57,14 @@ module Crimson
       h
     end
 
+    # @return [String] JSON representation
     def to_json(*_args)
       JSON.generate(to_h)
     end
 
+    # Deserialize from a hash (with string or symbol keys).
+    # @param hash [Hash]
+    # @return [SessionEntry]
     def self.from_h(hash)
       new(
         id: hash[:id] || hash["id"],
@@ -61,6 +81,12 @@ module Crimson
       )
     end
 
+    # Build a session entry from a message object.
+    # @param message [Message::Base]
+    # @param parent_id [String, nil]
+    # @param read_files [Array<String>]
+    # @param modified_files [Array<String>]
+    # @return [SessionEntry]
     def self.from_message(message, parent_id:, read_files: [], modified_files: [])
       case message
       when Message::User
@@ -90,6 +116,8 @@ module Crimson
       end
     end
 
+    # Convert back to a Message object.
+    # @return [Message::Base, nil]
     def to_message
       case @role
       when "user"
