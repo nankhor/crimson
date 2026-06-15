@@ -10,7 +10,7 @@ This project adheres to a [Code of Conduct](CODE_OF_CONDUCT.md). By participatin
 
 ### Report Bugs
 
-Open an issue at <https://github.com/cmoiadib/crimson/issues> with:
+Open an issue at <https://github.com/nankhor/crimson/issues> with:
 - A clear title and description
 - Steps to reproduce
 - Expected vs actual behavior
@@ -32,7 +32,7 @@ Open an issue with the `enhancement` label describing the feature and its use ca
 ### Development Setup
 
 ```bash
-git clone https://github.com/cmoiadib/crimson.git
+git clone https://github.com/nankhor/crimson.git
 cd crimson
 bundle install
 ruby exe/crimson setup

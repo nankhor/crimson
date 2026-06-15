@@ -3,8 +3,8 @@ require_relative "lib/crimson/version"
 Gem::Specification.new do |spec|
   spec.name          = "crimson-code"
   spec.version       = Crimson::VERSION
-  spec.authors       = ["cmoiadib"]
-  spec.email         = ["cmoiadib@users.noreply.github.com"]
+  spec.authors       = ["nankhor"]
+  spec.email         = ["nankhor@users.noreply.github.com"]
 
   spec.summary       = "A minimal Ruby-based coding agent"
   spec.description   = "Crimson is an open-source minimal coding agent that gets things done. " \
