@@ -1,7 +1,7 @@
 # Crimson
 
 [![CI](https://github.com/nankhor/crimson/actions/workflows/ci.yml/badge.svg)](https://github.com/nankhor/crimson/actions/workflows/ci.yml)
-[![Gem Version](https://img.shields.io/gem/v/crimson)](https://rubygems.org/gems/crimson)
+[![Gem Version](https://img.shields.io/gem/v/crimson-code)](https://rubygems.org/gems/crimson-code)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
 [![Ruby](https://img.shields.io/badge/ruby-3.3%2B-red)](https://www.ruby-lang.org)
 
@@ -11,7 +11,7 @@ A minimal Ruby-based coding agent that gets things done.
 
 ```bash
 # Install
-gem install crimson
+gem install crimson-code
 
 # Configure your API key
 crimson setup
@@ -44,7 +44,7 @@ crimson "refactor this module to use dependency injection"
 ### Via RubyGems
 
 ```bash
-gem install crimson
+gem install crimson-code
 ```
 
 ### From source
