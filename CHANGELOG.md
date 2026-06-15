@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1] - 2026-06-15
+
+### Fixed
+
+- Updated gem author to nankhor
+- Updated LICENSE copyright year to 2026
+
 ## [0.1.0] - 2026-06-15
 
 ### Added
