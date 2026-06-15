@@ -15,8 +15,7 @@ Gem::Specification.new do |spec|
   spec.metadata = {
     "source_code_uri" => "https://github.com/nankhor/crimson",
     "changelog_uri" => "https://github.com/nankhor/crimson/blob/main/CHANGELOG.md",
-    "bug_tracker_uri" => "https://github.com/nankhor/crimson/issues",
-    "rubygems_mfa_required" => "true"
+    "bug_tracker_uri" => "https://github.com/nankhor/crimson/issues"
   }
 
   spec.required_ruby_version = ">= 3.3"
