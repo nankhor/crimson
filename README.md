@@ -1,15 +1,28 @@
 # Crimson
 
-[![CI](https://github.com/cmoiadib/crimson/actions/workflows/ci.yml/badge.svg)](https://github.com/cmoiadib/crimson/actions/workflows/ci.yml)
+[![CI](https://github.com/nankhor/crimson/actions/workflows/ci.yml/badge.svg)](https://github.com/nankhor/crimson/actions/workflows/ci.yml)
 [![Gem Version](https://img.shields.io/gem/v/crimson)](https://rubygems.org/gems/crimson)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
 [![Ruby](https://img.shields.io/badge/ruby-3.2%2B-red)](https://www.ruby-lang.org)
 
-An open-source Ruby-based minimal coding agent made to get things done.
+A minimal Ruby-based coding agent that gets things done.
+
+## Quick Start
+
+```bash
+# Install
+gem install crimson
+
+# Configure your API key
+crimson setup
+
+# Start coding
+crimson "refactor this module to use dependency injection"
+```
 
 ## Features
 
-- **Multi-provider support** — OpenAI, Anthropic, OpenRouter, Mistral, xAI, and custom OpenAI-compatible endpoints
+- **Multi-provider support** — OpenAI, Anthropic, OpenRouter, Mistral, xAI, and any OpenAI-compatible endpoint
 - **Official SDKs** — Uses the official OpenAI and Anthropic Ruby gems
 - **Built-in tools** — Read, write, edit, list files, run commands, search code, and glob
 - **Streaming output** — Real-time response with styled markdown rendering (headers, bold, italic, code, lists, links, blockquotes)
@@ -28,26 +41,76 @@ An open-source Ruby-based minimal coding agent made to get things done.
 
 ## Installation
 
+### Via RubyGems
+
 ```bash
-git clone https://github.com/cmoiadib/crimson.git
-cd crimson
-bundle install
+gem install crimson
 ```
 
-## Setup
+### From source
 
 ```bash
-ruby bin/crimson setup
+git clone https://github.com/nankhor/crimson.git
+cd crimson
+bundle install
+bundle exec exe/crimson setup
+```
+
+## Configuration
+
+```bash
+crimson setup
 ```
 
 This walks you through selecting a provider, entering your API key, and picking a model.
 
+Configuration is stored in `~/.crimson/config.json` (600 permissions).
+
+You can also set the API key via environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `OPENAI_API_KEY` | OpenAI API key |
+| `ANTHROPIC_API_KEY` | Anthropic API key |
+| `MISTRAL_API_KEY` | Mistral API key |
+| `XAI_API_KEY` | xAI API key |
+
 ## Usage
 
-Start the interactive REPL:
+### Interactive REPL
+
+Start a conversational session:
 
 ```bash
-ruby bin/crimson
+crimson
+```
+
+Type your task and the agent will use its tools to read, write, and edit files in your project.
+
+### One-shot mode
+
+Pass a task directly as an argument:
+
+```bash
+crimson "add error handling to the database module"
+```
+
+The agent completes the task and exits, showing the full conversation and cost summary.
+
+### Example session
+
+```
+$ crimson
+Crimson v0.1.0
+Type /help for commands, /exit to quit
+
+> add a health check endpoint to the Sinatra app
+→Read config.ru ...
+→Read app.rb ...
+✱Search app.rb for "get" ...
+→Write app.rb ...
+Done. Added GET /health endpoint returning JSON status.
+Tokens: 1,234 ↑ | Cost: $0.0123 | Time: 12.3s
 ```
 
 ### Slash commands
@@ -70,9 +133,17 @@ ruby bin/crimson
 | `/compact` | Compact conversation history |
 | `/exit` | Exit crimson |
 
-### Skills
+## Skills
 
-Add `.md` files to the `skills/` directory to customize agent behavior. These are loaded into the system prompt automatically.
+Add `.md` files to `~/.crimson/skills/` to customize agent behavior. These are loaded into the system prompt automatically. Built-in skills are in the `skills/` directory for reference.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
