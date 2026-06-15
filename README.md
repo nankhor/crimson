@@ -3,7 +3,7 @@
 [![CI](https://github.com/nankhor/crimson/actions/workflows/ci.yml/badge.svg)](https://github.com/nankhor/crimson/actions/workflows/ci.yml)
 [![Gem Version](https://img.shields.io/gem/v/crimson)](https://rubygems.org/gems/crimson)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
-[![Ruby](https://img.shields.io/badge/ruby-3.2%2B-red)](https://www.ruby-lang.org)
+[![Ruby](https://img.shields.io/badge/ruby-3.3%2B-red)](https://www.ruby-lang.org)
 
 A minimal Ruby-based coding agent that gets things done.
 
@@ -37,7 +37,7 @@ crimson "refactor this module to use dependency injection"
 
 ## Requirements
 
-- Ruby 3.2+
+- Ruby 3.3+
 
 ## Installation
 
