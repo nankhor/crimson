@@ -1,7 +1,7 @@
 require_relative "lib/crimson/version"
 
 Gem::Specification.new do |spec|
-  spec.name          = "crimson"
+  spec.name          = "crimson-code"
   spec.version       = Crimson::VERSION
   spec.authors       = ["cmoiadib"]
   spec.email         = ["cmoiadib@users.noreply.github.com"]
@@ -9,13 +9,13 @@ Gem::Specification.new do |spec|
   spec.summary       = "A minimal Ruby-based coding agent"
   spec.description   = "Crimson is an open-source minimal coding agent that gets things done. " \
                         "Supports OpenAI, Anthropic, OpenRouter, Mistral, xAI, and custom providers."
-  spec.homepage      = "https://github.com/cmoiadib/crimson"
+  spec.homepage      = "https://github.com/nankhor/crimson"
   spec.license       = "MIT"
 
   spec.metadata = {
-    "source_code_uri" => "https://github.com/cmoiadib/crimson",
-    "changelog_uri" => "https://github.com/cmoiadib/crimson/blob/main/CHANGELOG.md",
-    "bug_tracker_uri" => "https://github.com/cmoiadib/crimson/issues",
+    "source_code_uri" => "https://github.com/nankhor/crimson",
+    "changelog_uri" => "https://github.com/nankhor/crimson/blob/main/CHANGELOG.md",
+    "bug_tracker_uri" => "https://github.com/nankhor/crimson/issues",
     "rubygems_mfa_required" => "true"
   }
 

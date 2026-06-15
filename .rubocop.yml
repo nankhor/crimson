@@ -17,7 +17,7 @@ Style/FrozenStringLiteralComment:
 Metrics/BlockLength:
   Exclude:
     - spec/**/*
-    - crimson.gemspec
+    - crimson-code.gemspec
 
 Layout/LineLength:
   Max: 120
